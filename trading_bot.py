@@ -207,9 +207,11 @@ class TradingBot:
 
             # Wait for fill or timeout
             if not self.order_filled_event.is_set():
+                timeout_seconds = int(os.getenv('ORDER_TIMEOUT_SECONDS', 10))  # Default to 10 seconds
                 try:
-                    await asyncio.wait_for(self.order_filled_event.wait(), timeout=10)
+                    await asyncio.wait_for(self.order_filled_event.wait(), timeout=timeout_seconds)
                 except asyncio.TimeoutError:
+                    self.logger.log(f"[OPEN] Order {order_result.order_id} timed out after {timeout_seconds} seconds, trying to cancel order", "INFO")
                     pass
 
             # Handle order result
@@ -261,7 +263,7 @@ class TradingBot:
                     self.current_order_status = "CANCELED"
 
             except Exception as e:
-                self.logger.log(f"[CLOSE] Error canceling order {order_id}: {e}", "ERROR")
+                self.logger.log(f"[CLOSE] Error canceling order {order_id}: {str(e)}", "ERROR")
 
             if self.config.exchange == "backpack":
                 self.order_filled_amount = cancel_result.filled_size

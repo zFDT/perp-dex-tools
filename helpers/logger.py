@@ -95,8 +95,25 @@ class TradingLogger:
         if current_time - self.last_lark_notification_time > self.lark_notification_interval * 60:
             lark_token = os.getenv("LARK_TOKEN")
             if lark_token:
-                asyncio.run(self._send_lark_message(lark_token, message))
+                # Instead of using asyncio.run(), create a task if we're in an event loop
+                try:
+                    # Try to get the running event loop
+                    loop = asyncio.get_running_loop()
+                    # If we're in an event loop, create a task instead of using asyncio.run()
+                    task = loop.create_task(self._send_lark_message(lark_token, message))
+                    # Add a callback to handle any exceptions in the task
+                    task.add_done_callback(self._handle_task_exception)
+                except RuntimeError:
+                    # If there's no running event loop, use asyncio.run()
+                    asyncio.run(self._send_lark_message(lark_token, message))
             self.last_lark_notification_time = current_time
+
+    def _handle_task_exception(self, task):
+        """Handle exceptions in async tasks."""
+        try:
+            task.result()
+        except Exception as e:
+            self.log(f"Error in Lark notification task: {e}", "ERROR")
 
     async def _send_lark_message(self, lark_token: str, message: str):
         """Send a formatted message to Lark."""

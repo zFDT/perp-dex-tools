@@ -80,6 +80,14 @@ async def main():
         # The bot's run method already handles graceful shutdown
         return
 
-
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except RuntimeError as e:
+        if "asyncio.run() cannot be called from a running event loop" in str(e):
+            # If we're already in an event loop, just await the main function
+            import asyncio
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(main())
+        else:
+            raise

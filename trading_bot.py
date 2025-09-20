@@ -78,6 +78,11 @@ class TradingBot:
         self.shutdown_requested = False
         self.loop = None
 
+        # Hourly statistics
+        self.hourly_operations = 0
+        self.hourly_fees = Decimal(0)
+        self.last_hour_reset = time.time()
+
         # Register order callback
         self._setup_websocket_handlers()
 
@@ -219,6 +224,12 @@ class TradingBot:
         order_id = order_result.order_id
         filled_price = order_result.price
 
+        # Update hourly statistics
+        self.hourly_operations += 1
+        # Assuming a fixed fee rate of 0.1% for simplicity
+        fee_rate = Decimal(0.001)
+        self.hourly_fees += filled_price * self.config.quantity * fee_rate
+
         if self.order_filled_event.is_set():
             self.last_open_order_time = time.time()
             # Place close order
@@ -282,7 +293,7 @@ class TradingBot:
         return False
 
     async def _log_status_periodically(self):
-        """Log status information periodically, including positions."""
+        """Log status information periodically, including positions and hourly statistics."""
         if time.time() - self.last_log_time > 60 or self.last_log_time == 0:
             print("--------------------------------")
             try:
@@ -333,6 +344,21 @@ class TradingBot:
                     mismatch_detected = True
                 else:
                     mismatch_detected = False
+
+                # Send hourly statistics to Lark
+                current_time = time.time()
+                if current_time - self.last_hour_reset > 3600:  # 1 hour
+                    hourly_stats_message = f"Hourly Statistics:\nOperations: {self.hourly_operations}\nFees: {self.hourly_fees}"
+                    self.logger.log(hourly_stats_message, "INFO")
+                    lark_token = os.getenv("LARK_TOKEN")
+                    if lark_token:
+                        async with LarkBot(lark_token) as bot:
+                            await bot.send_text(hourly_stats_message)
+
+                    # Reset statistics
+                    self.hourly_operations = 0
+                    self.hourly_fees = Decimal(0)
+                    self.last_hour_reset = current_time
 
                 return mismatch_detected
 

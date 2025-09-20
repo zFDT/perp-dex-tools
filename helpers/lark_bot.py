@@ -1,7 +1,9 @@
 import os
 import ssl
 import aiohttp
+import json
 from typing import Dict, Any, Optional
+from datetime import datetime
 
 import certifi
 
@@ -40,6 +42,40 @@ class LarkBot:
             }
         }
         return await self._send_message(payload)
+
+    async def send_notification(self, 
+                              notification_type: str,
+                              instance_id: str, 
+                              exchange: str,
+                              ticker: str,
+                              message: str,
+                              data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Send standardized JSON notification to Lark
+        
+        Args:
+            notification_type: Type of notification (startup, error, hourly_stats)
+            instance_id: Instance identifier
+            exchange: Exchange name
+            ticker: Ticker symbol
+            message: Main message content
+            data: Additional data specific to the notification type
+        """
+        notification_data = {
+            "notification_type": notification_type,
+            "timestamp": datetime.now().isoformat(),
+            "instance_id": instance_id,
+            "exchange": exchange,
+            "ticker": ticker,
+            "message": message
+        }
+        
+        if data:
+            notification_data.update(data)
+        
+        # Send as JSON string in text format for easy parsing
+        json_content = json.dumps(notification_data, ensure_ascii=False, indent=2)
+        return await self.send_text(json_content)
 
     async def _send_message(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         if not self.session:

@@ -73,9 +73,8 @@ class LarkBot:
         if data:
             notification_data.update(data)
         
-        # Send as JSON string in text format for easy parsing
-        json_content = json.dumps(notification_data, ensure_ascii=False, indent=2)
-        return await self.send_text(json_content)
+        # Send as direct JSON payload instead of text wrapper
+        return await self._send_message(notification_data)
 
     async def _send_message(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         if not self.session:

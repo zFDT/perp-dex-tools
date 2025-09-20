@@ -41,6 +41,8 @@ def parse_arguments():
                         help=".env file path (default: .env)")
     parser.add_argument('--grid-step', type=str, default='-100',
                         help="The minimum distance in percentage to the next close order price (default: -100)")
+    parser.add_argument('--instance-id', type=str, default='default',
+                        help="Instance identifier to distinguish between different script instances (default: default)")
 
     return parser.parse_args()
 
@@ -65,7 +67,8 @@ async def main():
         max_orders=args.max_orders,
         wait_time=args.wait_time,
         exchange=args.exchange,
-        grid_step=Decimal(args.grid_step)
+        grid_step=Decimal(args.grid_step),
+        instance_id=args.instance_id
     )
 
     # Create and run the bot

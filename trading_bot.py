@@ -28,6 +28,7 @@ class TradingConfig:
     wait_time: int
     exchange: str
     grid_step: Decimal
+    instance_id: str = "default"  # Unique identifier for the bot instance
 
     @property
     def close_order_side(self) -> str:
@@ -56,7 +57,7 @@ class TradingBot:
 
     def __init__(self, config: TradingConfig):
         self.config = config
-        self.logger = TradingLogger(config.exchange, config.ticker, log_to_console=True)
+        self.logger = TradingLogger(config.exchange, config.ticker, config.instance_id, log_to_console=True)
 
         # Create exchange client
         try:

@@ -15,17 +15,18 @@ from decimal import Decimal
 class TradingLogger:
     """Enhanced logging with structured output and error handling."""
 
-    def __init__(self, exchange: str, ticker: str, log_to_console: bool = False):
+    def __init__(self, exchange: str, ticker: str, instance_id: str = "default", log_to_console: bool = False):
         self.exchange = exchange
         self.ticker = ticker
+        self.instance_id = instance_id
         # Ensure logs directory exists at the project root
         project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
         logs_dir = os.path.join(project_root, 'logs')
         os.makedirs(logs_dir, exist_ok=True)
 
         # Log file paths inside logs directory
-        self.log_file = os.path.join(logs_dir, f"{exchange}_{ticker}_orders.csv")
-        self.debug_log_file = os.path.join(logs_dir, f"{exchange}_{ticker}_activity.log")
+        self.log_file = os.path.join(logs_dir, f"{exchange}_{ticker}_{instance_id}_orders.csv")
+        self.debug_log_file = os.path.join(logs_dir, f"{exchange}_{ticker}_{instance_id}_activity.log")
         self.timezone = pytz.timezone(os.getenv('TIMEZONE', 'Asia/Shanghai'))
         self.logger = self._setup_logger(log_to_console)
         self.last_lark_notification_time = 0
@@ -106,7 +107,7 @@ class TradingLogger:
             "content": {
                 "post": {
                     "zh_cn": {
-                        "title": "🚨 Trading Bot Error Alert",
+                        "title": f"🚨 Trading Bot Error Alert [{self.exchange.upper()}_{self.ticker.upper()}_{self.instance_id}]",
                         "content": [
                             [
                                 {

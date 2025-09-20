@@ -108,6 +108,7 @@ python runbot.py --exchange backpack --ticker ETH --quantity 0.1 --take-profit 0
 - `--max-orders`: 最大活跃订单数（默认：40）
 - `--wait-time`: 订单间等待时间（秒）（默认：450）
 - `--grid-step`: 与下一个平仓订单价格的最小距离百分比（默认：-100，表示无限制）
+- `--instance-id`: 实例标识符，用于区分不同的脚本实例（默认：default）
 
 ## 交易策略
 

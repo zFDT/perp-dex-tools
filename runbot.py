@@ -15,13 +15,14 @@ from exchanges import ExchangeFactory
 
 def parse_arguments():
     """Parse command line arguments."""
+    supported_exchanges = ExchangeFactory.get_supported_exchanges()
     parser = argparse.ArgumentParser(description='Modular Trading Bot - Supports multiple exchanges')
 
     # Exchange selection
     parser.add_argument('--exchange', type=str, default='edgex',
-                        choices=ExchangeFactory.get_supported_exchanges(),
+                        choices=supported_exchanges,
                         help='Exchange to use (default: edgex). '
-                             f'Available: {", ".join(ExchangeFactory.get_supported_exchanges())}')
+                             f'Available: {", ".join(supported_exchanges)}')
 
     # Trading parameters
     parser.add_argument('--ticker', type=str, default='ETH',

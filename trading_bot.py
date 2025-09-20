@@ -223,10 +223,7 @@ class TradingBot:
             self.last_open_order_time = time.time()
             # Place close order
             close_side = self.config.close_order_side
-            if close_side == 'sell':
-                close_price = filled_price * (1 + self.config.take_profit/100)
-            else:
-                close_price = filled_price * (1 - self.config.take_profit/100)
+            close_price = self._calculate_close_price(filled_price)
 
             close_order_result = await self.exchange_client.place_close_order(
                 self.config.contract_id,
@@ -267,10 +264,7 @@ class TradingBot:
 
             if self.order_filled_amount > 0:
                 close_side = self.config.close_order_side
-                if close_side == 'sell':
-                    close_price = filled_price * (1 + self.config.take_profit/100)
-                else:
-                    close_price = filled_price * (1 - self.config.take_profit/100)
+                close_price = self._calculate_close_price(filled_price)
 
                 close_order_result = await self.exchange_client.place_close_order(
                     self.config.contract_id,
@@ -374,6 +368,13 @@ class TradingBot:
                 raise ValueError(f"Invalid direction: {self.config.direction}")
         else:
             return True
+
+    def _calculate_close_price(self, filled_price: Decimal) -> Decimal:
+        """Calculate the close price based on the filled price and take profit."""
+        if self.config.close_order_side == 'sell':
+            return filled_price * (1 + self.config.take_profit / 100)
+        else:
+            return filled_price * (1 - self.config.take_profit / 100)
 
     async def run(self):
         """Main trading loop."""

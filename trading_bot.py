@@ -280,7 +280,7 @@ class TradingBot:
                 should_wait(self.config.direction, new_order_price, order_result.price)
                 and current_order_status == "OPEN"
             ):
-                self.logger.log(f"[OPEN] [{order_id}] Waiting for order to be filled", "INFO")
+                self.logger.log(f"[OPEN] [{order_id}] Waiting for order to be filled @ {order_result.price}", "INFO")
                 await asyncio.sleep(5)
                 if self.config.exchange == "lighter":
                     current_order_status = self.exchange_client.current_order.status

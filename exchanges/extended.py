@@ -25,6 +25,7 @@ import time
 import json
 import traceback
 import asyncio
+import aiohttp
 
 from dotenv import load_dotenv
 import os
@@ -85,15 +86,6 @@ class ExtendedClient(BaseExchangeClient):
         # 按照 trading_client.py 的方式初始化
         self.stark_config = STARKNET_MAINNET_CONFIG
         self.perpetual_trading_client = PerpetualTradingClient(self.stark_config, self.stark_account)
-        
-        # --- Market Info --- 
-        self._market_info = {}
-        try:
-            market_info_path = os.path.join(os.path.dirname(__file__), '..', 'helpers', 'market_info_extended.json')
-            with open(market_info_path, 'r') as f:
-                self._market_info = json.load(f)
-        except FileNotFoundError:
-            print("Warning: market_info_extended.json not found. Price precision adjustment will be skipped.")
 
         # Initialize logger using the same format as helpers
         self.logger = TradingLogger(exchange="extended", ticker=self.config.ticker, log_to_console=True)
@@ -111,26 +103,6 @@ class ExtendedClient(BaseExchangeClient):
         self.partially_filled_avg_price = 0
         self.initial_check_for_open_orders = True  # PATCH: will turn to False after 2 times (to match the trading bot logic), so that we can get the open orders even after restarting the script
         self.get_active_orders_cnt = 0
-
-    def round_to_tick(self, price: Decimal) -> Decimal:
-        """Round price to the appropriate tick size based on asset precision."""
-        if self.config.contract_id not in self._market_info:
-            return price
-        
-        asset_precision = self._market_info[self.config.contract_id].get('assetPrecision', 0)
-        min_price_change = Decimal(self._market_info[self.config.contract_id].get('minPriceChange', '0.00001'))
-        
-        # Round to the minimum price change
-        rounded_price = (price / min_price_change).quantize(Decimal('1'), rounding=ROUND_HALF_UP) * min_price_change
-        
-        # Apply asset precision
-        if asset_precision > 0:
-            precision_str = '0.' + '0' * (asset_precision - 1) + '1'
-            rounded_price = rounded_price.quantize(Decimal(precision_str), rounding=ROUND_HALF_UP)
-        else:
-            rounded_price = rounded_price.quantize(Decimal('1'), rounding=ROUND_HALF_UP)
-        
-        return rounded_price
 
     def _validate_config(self) -> None:
         """Validate the exchange-specific configuration."""
@@ -221,8 +193,7 @@ class ExtendedClient(BaseExchangeClient):
             best_ask = Decimal('0')
             if orderbook["ask"] and len(orderbook["ask"]) > 0:
                 best_ask = Decimal(orderbook["ask"][0]["p"])
-                
-            self.logger.log(f"Best bid: {best_bid}, Best ask: {best_ask}", level="INFO")
+
             return best_bid, best_ask
             
         except Exception as e:
@@ -249,26 +220,17 @@ class ExtendedClient(BaseExchangeClient):
 
                 if direction == 'buy':
                     # For buy orders, place slightly below best ask to ensure execution
-                    tick_size = Decimal(self._market_info.get(contract_id, {}).get('minPriceChange', '0.00001'))
-                    order_price = best_ask - tick_size
+                    order_price = best_ask - self.config.tick_size
                     side = OrderSide.BUY
                 else:
                     # For sell orders, place slightly above best bid to ensure execution
-                    tick_size = Decimal(self._market_info.get(contract_id, {}).get('minPriceChange', '0.00001'))
-                    order_price = best_bid + tick_size
+                    order_price = best_bid + self.config.tick_size
                     side = OrderSide.SELL
 
                 # Round price to appropriate precision
                 rounded_price = self.round_to_tick(order_price)
 
-                # Adjust price to meet market precision requirements (from extended_old.py logic)
-                if contract_id in self._market_info:
-                    price_tick = Decimal(self._market_info[contract_id]['minPriceChange'])
-                    rounded_price = (rounded_price / price_tick).quantize(Decimal('1')) * price_tick
-                    
                 # set timeout to 9 seconds for open orders to avoid orders being filled right when trading_bot hit 10s timeout and call cancel_order
-                expire_time = utc_now() + timedelta(seconds=9)
-
                 # Place the order using official SDK (post-only to ensure maker order)
                 order_result = await self.perpetual_trading_client.place_order(
                     market_name=contract_id,
@@ -277,7 +239,6 @@ class ExtendedClient(BaseExchangeClient):
                     side=side,
                     time_in_force=TimeInForce.GTT,
                     post_only=True,  # Ensure MAKER orders
-                    expire_time=expire_time
                 )
 
                 if not order_result or not order_result.data or order_result.status != 'OK':
@@ -293,11 +254,13 @@ class ExtendedClient(BaseExchangeClient):
                 order_info = await self.get_order_info(order_id)
 
                 if order_info:
-                    if order_info.status == 'CANCELED':
+                    if order_info.status in ['CANCELED', 'REJECTED']:
                         if retry_count < max_retries - 1:
+                            self.logger.log(f"POST-ONLY order rejected, retrying", level="INFO")
                             retry_count += 1
                             continue
                         else:
+                            self.logger.log(f"POST-ONLY order rejected after {max_retries} attempts", level="ERROR")
                             return OrderResult(success=False, error_message=f'Order rejected after {max_retries} attempts')
                     elif order_info.status in ['NEW', 'OPEN', 'PARTIALLY_FILLED', 'FILLED']:
                         # Order successfully placed
@@ -370,22 +333,16 @@ class ExtendedClient(BaseExchangeClient):
                 if side.lower() == 'sell':
                     # For sell orders, ensure price is above best bid to be a maker order
                     if price <= best_bid:
-                        tick_size = Decimal(self._market_info.get(contract_id, {}).get('minPriceChange', '0.00001'))
-                        adjusted_price = best_bid + tick_size
+                        adjusted_price = best_bid + self.config.tick_size
                 elif side.lower() == 'buy':
                     # For buy orders, ensure price is below best ask to be a maker order
                     if price >= best_ask:
-                        tick_size = Decimal(self._market_info.get(contract_id, {}).get('minPriceChange', '0.00001'))
-                        adjusted_price = best_ask - tick_size
+                        adjusted_price = best_ask - self.config.tick_size
 
                 # Round price to appropriate precision
                 rounded_price = self.round_to_tick(adjusted_price)
+                quantity = quantity.quantize(self.min_order_size, rounding=ROUND_HALF_UP)
 
-                # Adjust price to meet market precision requirements (from extended_old.py logic)
-                if contract_id in self._market_info:
-                    price_tick = Decimal(self._market_info[contract_id]['minPriceChange'])
-                    rounded_price = (rounded_price / price_tick).quantize(Decimal('1')) * price_tick
-                    
                 # Place the order using official SDK (post-only to avoid taker fees)
                 order_result = await self.perpetual_trading_client.place_order(
                     market_name=contract_id,
@@ -462,10 +419,23 @@ class ExtendedClient(BaseExchangeClient):
             # save this
             prev_partially_filled_size = self.partially_filled_size
             prev_partially_filled_avg_price = self.partially_filled_avg_price
-            
+
+            # cancel the order
+            cancel_result = await self.perpetual_trading_client.orders.cancel_order(order_id)
+            self.logger.log(f"cancel_result: {cancel_result}", level="INFO")
+
+            if not cancel_result or not cancel_result.data:
+                self.logger.log(f"Failed to cancel order {order_id}: {cancel_result}", level="ERROR")
+                # revert this
+                self.partially_filled_size = prev_partially_filled_size
+                self.partially_filled_avg_price = prev_partially_filled_avg_price
+                self.logger.log(f"Reverted partially filled size and price: {self.partially_filled_size} and {self.partially_filled_avg_price}", level="INFO")
+                return OrderResult(success=False, error_message='Failed to cancel order')
+
+            await asyncio.sleep(0.1)
             # get order info to know what was the (partially) filled order size
             order_info = await self.get_order_info(order_id)
-            min_order_size = Decimal(self._market_info[self.config.contract_id].get('minOrderSize', 0))
+            min_order_size = self.min_order_size
             filled_size = 0
             if order_info:
                 if order_info.filled_size >= min_order_size:
@@ -486,17 +456,6 @@ class ExtendedClient(BaseExchangeClient):
             else:
                 self.logger.log(f"Could not get order info for {order_id} when cancelling order, returning filled_size as 0", level="ERROR")
             
-            # cancel the order
-            cancel_result = await self.perpetual_trading_client.orders.cancel_order(order_id)
-            self.logger.log(f"cancel_result: {cancel_result}", level="INFO")
-
-            if not cancel_result or not cancel_result.data:
-                self.logger.log(f"Failed to cancel order {order_id}: {cancel_result}", level="ERROR")
-                # revert this
-                self.partially_filled_size = prev_partially_filled_size
-                self.partially_filled_avg_price = prev_partially_filled_avg_price
-                self.logger.log(f"Reverted partially filled size and price: {self.partially_filled_size} and {self.partially_filled_avg_price}", level="INFO")
-                return OrderResult(success=False, error_message='Failed to cancel order')
 
             self.logger.log(f"Successfully canceled order {order_id}", level="INFO")
             return OrderResult(success=True, filled_size=filled_size)
@@ -505,22 +464,57 @@ class ExtendedClient(BaseExchangeClient):
             return OrderResult(success=False, error_message=str(e))
 
     async def get_order_info(self, order_id: str) -> Optional[OrderInfo]:
-        """Get order information."""
-        # the official SDK doesnt have an implementation for get order by id, even though they have the API endpoint
-        # implement using get_active_orders and filter for now
-        active_orders = await self.get_active_orders(contract_id=self.config.contract_id)
-
-        # If no active orders, return None
-        if len(active_orders) == 0:
+        """Get order information using REST API endpoint."""
+        try:
+            url = f"https://api.starknet.extended.exchange/api/v1/user/orders/{order_id}"
+            headers = {
+                "X-Api-Key": self.api_key,
+                "User-Agent": "User-Agent"
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=headers) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        
+                        if data.get("status") != "OK" or not data.get("data"):
+                            self.logger.log(f"Failed to get order info for {order_id}: {data}", "ERROR")
+                            return None
+                        
+                        order_data = data["data"]
+                        
+                        # Convert status to match expected format
+                        status = order_data.get("status", "")
+                        if status == "NEW":
+                            status = "OPEN"
+                        elif status == "CANCELLED":
+                            status = "CANCELED"
+                        
+                        # Create OrderInfo object
+                        order_info = OrderInfo(
+                            order_id=str(order_data.get("id", "")),
+                            side=order_data.get("side", "").lower(),
+                            size=Decimal(order_data.get("qty", "0")) - Decimal(order_data.get("filledQty", "0")),
+                            price=Decimal(order_data.get("price", "0")),
+                            status=status,
+                            filled_size=Decimal(order_data.get("filledQty", "0")),
+                            remaining_size=Decimal(order_data.get("qty", "0")) - Decimal(order_data.get("filledQty", "0"))
+                        )
+                        
+                        return order_info
+                    
+                    elif response.status == 404:
+                        # Order not found
+                        self.logger.log(f"Order {order_id} not found", "INFO")
+                        return None
+                    
+                    else:
+                        self.logger.log(f"Failed to get order info for {order_id}: HTTP {response.status}", "ERROR")
+                        return None
+                        
+        except Exception as e:
+            self.logger.log(f"Error getting order info for {order_id}: {str(e)}", "ERROR")
             return None
-        
-        # Find the order with the given order_id
-        for order in active_orders:
-            if order.order_id == order_id:
-                # active_orders is already a list of OrderInfo, so we dont have to format it, just return
-                return order
-        
-        return None
 
     async def get_active_orders(self, contract_id: str) -> List[OrderInfo]:
         """Get active orders for a contract using official SDK."""
@@ -539,12 +533,17 @@ class ExtendedClient(BaseExchangeClient):
 
             for order in order_list:
                 if order.market == contract_id:
+                    if order.status == 'NEW':
+                        order_status = 'OPEN'
+                    else:
+                        order_status = order.status
+
                     contract_orders.append(OrderInfo(
                         order_id=order.id,
                         side=order.side.lower(),
                         size=Decimal(order.qty) - Decimal(order.filled_qty),  # PATCH: changed this to remaining size to match with the trading bot logic, might cause issues later if main trading bot logic is changed
                         price=Decimal(order.price),
-                        status=order.status,
+                        status=order_status,
                         filled_size=Decimal(order.filled_qty),
                         remaining_size=Decimal(order.qty) - Decimal(order.filled_qty)
                     ))
@@ -565,23 +564,24 @@ class ExtendedClient(BaseExchangeClient):
         
         for order in order_list:
             if order.get('market') == contract_id:
+                if order.get('status') == 'NEW':
+                    order_status = 'OPEN'
+                else:
+                    order_status = order.get('status')
+
                 formatted_order = OrderInfo(
                     order_id=order.get('id'),
                     side=order.get('side').lower(),
                     size=Decimal(order.get('qty')) - Decimal(order.get('filledQty')),   # PATCH: changed this to remaining size to match with the trading bot logic, might cause issues later if main trading bot logic is changed
                     price=Decimal(order.get('price')),
-                    status=order.get('status'),
+                    status=order_status,
                     filled_size=Decimal(order.get('filledQty')),
                     remaining_size=Decimal(order.get('qty')) - Decimal(order.get('filledQty'))
                 )
-                # PATCH: added average price so that we can use it to close partially filled orders later
-                if order.get('averagePrice'):
-                    formatted_order.average_price = Decimal(order.get('averagePrice'))
-                else:
-                    formatted_order.average_price = Decimal(order.get('price'))
+
                 # handle it using dict methods because that's the format received through websocket
                 contract_orders.append(formatted_order)
-                
+
         return contract_orders
 
     async def get_account_positions(self) -> Decimal:
@@ -626,11 +626,11 @@ class ExtendedClient(BaseExchangeClient):
                 data = message.get('data', {})
                 orders = data.get('orders', [])
                 
-                self.logger.log(f"Received orders update: {orders}", "INFO")
-                
                 if orders and len(orders) > 0:
                     # Loop over all the order updates, extended websocket may send multiple order updates in one message
                     for order in orders:
+                        if order.get('market') != self.config.contract_id:
+                            continue
                         order_id = order.get('id')
                         status = order.get('status')
                         side = order.get('side', '').lower()
@@ -748,13 +748,13 @@ class ExtendedClient(BaseExchangeClient):
         
         # Check if config quantity is less than min order size
         min_quantity = Decimal(str(market_information.data[0].trading_config.min_order_size))
+        self.min_order_size = min_quantity
         if self.config.quantity < min_quantity:
             self.logger.log(f"Order quantity is less than min quantity: {self.config.quantity} < {min_quantity}", "ERROR")
             raise ValueError(f"Order quantity is less than min quantity: {self.config.quantity} < {min_quantity}")
         
         # Set tick size in config
-        tick_size = Decimal(str(market_information.data[0].trading_config.min_order_size_change))
-        self.config.tick_size = tick_size
+        self.config.tick_size = Decimal(str(market_information.data[0].trading_config.min_price_change))
 
         return self.config.contract_id, self.config.tick_size
 
@@ -765,12 +765,13 @@ class ExtendedClient(BaseExchangeClient):
             self.logger.log("Invalid bid/ask prices", "ERROR")
             raise ValueError("Invalid bid/ask prices")
 
+        tick_size = self.config.tick_size
         if direction == 'buy':
             # For buy orders, place slightly below best ask to ensure execution
-            order_price = best_ask - self.config.tick_size
+            order_price = best_ask - tick_size
         else:
             # For sell orders, place slightly above best bid to ensure execution
-            order_price = best_bid + self.config.tick_size
+            order_price = best_bid + tick_size
         return self.round_to_tick(order_price)
 
     

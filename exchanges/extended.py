@@ -473,7 +473,7 @@ class ExtendedClient(BaseExchangeClient):
         }
 
         attempt = 0
-        while not order_info and attempt < 5:
+        while not order_info and attempt < 50:
             attempt += 1
             try:
                 async with aiohttp.ClientSession() as session:

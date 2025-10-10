@@ -854,8 +854,6 @@ class HedgeBot:
 
         def order_update_handler(order_data):
             """Handle order updates from Backpack WebSocket."""
-            print(order_data)
-            print("--------------------------------")
             if order_data.get('contract_id') != self.backpack_contract_id:
                 return
             try:

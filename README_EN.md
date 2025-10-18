@@ -34,6 +34,9 @@ You will get 1.3x points boost; rebates (auto rebates system is expected to be l
 #### Extended: [https://app.extended.exchange/join/QUANT](https://app.extended.exchange/join/QUANT)
 10% fee discount; points boost (black box, but "you will get more points from affiliate referral program than using another account to refer yourself" quoted from the official documentation from Extended); access to private trading competition
 
+#### ApeX: [https://join.omni.apex.exchange/quant]( https://join.omni.apex.exchange/quant)
+30% fee rebates; 5% fee discount; points boost
+
 
 ## Installation
 

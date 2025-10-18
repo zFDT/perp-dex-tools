@@ -268,8 +268,8 @@ class ApexClient(BaseExchangeClient):
         order_book_data = order_book['data']
 
         # Extract bids and asks from the entry
-        bids = order_book_data.get('a', [])
-        asks = order_book_data.get('b', [])
+        bids = order_book_data.get('b', [])
+        asks = order_book_data.get('a', [])
 
         # Best bid is the highest price someone is willing to buy at
         best_bid = Decimal(max(bids, key=lambda x: Decimal(x[0]))[0])

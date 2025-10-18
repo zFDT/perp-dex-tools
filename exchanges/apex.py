@@ -196,7 +196,6 @@ class ApexClient(BaseExchangeClient):
                 # Parse the message structure
                 if isinstance(message, str):
                     message = json.loads(message)
-
                 # Check if this is a trade-event with ORDER_UPDATE
                 content = message.get("contents", {})
                 topic = message.get("topic", "")
@@ -226,14 +225,6 @@ class ApexClient(BaseExchangeClient):
                     order_type = "CLOSE"
                 else:
                     order_type = "OPEN"
-
-                # ignore canceled close orders
-                if status == "CANCELED" and order_type == "CLOSE":
-                    return
-
-                # if the order filled some and remaining some, it should be partially filled
-                if Decimal(filled_size) > 0 and Decimal(remaining_size) > 0:
-                    status = "PARTIALLY_FILLED"
 
                 if status in ['OPEN', 'PARTIALLY_FILLED', 'FILLED', 'CANCELED']:
                     if self._order_update_handler:

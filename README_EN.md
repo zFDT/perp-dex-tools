@@ -276,16 +276,19 @@ The new Hedge Mode (`hedge_mode.py`) is an trading strategy that reduces risk by
 ### Hedge Mode Usage Examples
 
 ```bash
-# Run BTC hedge mode
+# Run BTC hedge mode with Backpack
 python hedge_mode.py --exchange backpack --ticker BTC --size 0.05 --iter 20
 
-# Run ETH hedge mode
-python hedge_mode.py --exchange backpack --ticker ETH --size 0.1 --iter 20
+# Run ETH hedge mode with Extended
+python hedge_mode.py --exchange extended --ticker ETH --size 0.1 --iter 20
+
+# Run BTC hedge mode with Apex
+python hedge_mode.py --exchange apex --ticker BTC --size 0.05 --iter 20
 ```
 
 ### Hedge Mode Parameters
 
-- `--exchange`: Primary exchange (currently supports 'backpack')
+- `--exchange`: Primary exchange (supports 'backpack', 'extended', 'apex')
 - `--ticker`: Trading pair symbol (e.g., BTC, ETH)
 - `--size`: Order quantity per trade
 - `--iter`: Number of trading cycles
@@ -344,6 +347,13 @@ python hedge_mode.py --exchange backpack --ticker ETH --size 0.1 --iter 20
 - `EXTENDED_STARK_KEY_PUBLIC`: Your Stark public key
 - `EXTENDED_STARK_KEY_PRIVATE`: Your Stark private key
 - `EXTENDED_VAULT`: Your Extended Vault ID
+
+#### Apex Configuration
+
+- `APEX_API_KEY`: Your Apex API key
+- `APEX_API_KEY_PASSPHRASE`: Your Apex API key passphrase
+- `APEX_API_KEY_SECRET`: Your Apex API key secret
+- `APEX_OMNI_KEY_SEED`: Your Apex Omni key seed
 
 **How to get LIGHTER_ACCOUNT_INDEX**:
 

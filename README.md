@@ -302,16 +302,19 @@ python runbot.py --exchange extended --ticker ETH --quantity 0.1 --take-profit 0
 ### 对冲模式使用示例
 
 ```bash
-# 运行 BTC 对冲模式
+# 运行 BTC 对冲模式（Backpack）
 python hedge_mode.py --exchange backpack --ticker BTC --size 0.05 --iter 20
 
-# 运行 ETH 对冲模式
-python hedge_mode.py --exchange backpack --ticker ETH --size 0.1 --iter 20
+# 运行 ETH 对冲模式（Extended）
+python hedge_mode.py --exchange extended --ticker ETH --size 0.1 --iter 20
+
+# 运行 BTC 对冲模式（Apex）
+python hedge_mode.py --exchange apex --ticker BTC --size 0.05 --iter 20
 ```
 
 ### 对冲模式参数
 
-- `--exchange`: 主要交易所（目前支持 'backpack'）
+- `--exchange`: 主要交易所（支持 'backpack', 'extended', 'apex'）
 - `--ticker`: 交易对符号（如 BTC, ETH）
 - `--size`: 每笔订单数量
 - `--iter`: 交易循环次数
@@ -370,6 +373,13 @@ python hedge_mode.py --exchange backpack --ticker ETH --size 0.1 --iter 20
 - `EXTENDED_STARK_KEY_PUBLIC`: 创建API后显示的 Stark 公钥
 - `EXTENDED_STARK_KEY_PRIVATE`: 创建API后显示的 Stark 私钥
 - `EXTENDED_VAULT`: 创建API后显示的 Extended Vault ID
+
+#### Apex 配置
+
+- `APEX_API_KEY`: 您的 Apex API 密钥
+- `APEX_API_KEY_PASSPHRASE`: 您的 Apex API 密钥密码
+- `APEX_API_KEY_SECRET`: 您的 Apex API 密钥私钥
+- `APEX_OMNI_KEY_SEED`: 您的 Apex Omni 密钥种子
 
 **获取 LIGHTER_ACCOUNT_INDEX 的方法**：
 

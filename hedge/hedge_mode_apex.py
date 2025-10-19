@@ -13,8 +13,6 @@ from decimal import Decimal
 from typing import Tuple
 
 from lighter.signer_client import SignerClient
-import sys
-import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from exchanges.apex import ApexClient
@@ -212,7 +210,7 @@ class HedgeBot:
                 order_data["side"] = "LONG"
                 order_type = "CLOSE"
                 self.lighter_position += Decimal(order_data["filled_base_amount"])
-            
+
             client_order_index = order_data["client_order_id"]
 
             self.logger.info(f"[{client_order_index}] [{order_type}] [Lighter] [FILLED]: "
@@ -732,7 +730,6 @@ class HedgeBot:
 
         self.waiting_for_lighter_fill = True
 
-
     async def place_lighter_market_order(self, lighter_side: str, quantity: Decimal, price: Decimal):
         if not self.lighter_client:
             await self.initialize_lighter_client()
@@ -748,7 +745,6 @@ class HedgeBot:
             order_type = "OPEN"
             is_ask = True
             price = best_bid[0] * Decimal('0.998')
-
 
         # Reset order state
         self.lighter_order_filled = False
@@ -863,7 +859,7 @@ class HedgeBot:
                     order_type = "OPEN"
                 else:
                     order_type = "CLOSE"
-                
+
                 if status == 'CANCELED' and filled_size > 0:
                     status = 'FILLED'
 
@@ -914,31 +910,6 @@ class HedgeBot:
 
         except Exception as e:
             self.logger.error(f"Could not setup Apex WebSocket handlers: {e}")
-
-
-    def handle_apex_order_update(self, order_data):
-        """Handle Apex order updates from WebSocket."""
-        side = order_data.get('side', '').lower()
-        filled_size = Decimal(order_data.get('filled_size', '0'))
-        price = Decimal(order_data.get('price', '0'))
-
-        if side == 'buy':
-            lighter_side = 'sell'
-        else:
-            lighter_side = 'buy'
-
-        # Store order details for immediate execution
-        self.current_lighter_side = lighter_side
-        self.current_lighter_quantity = filled_size
-        self.current_lighter_price = price
-
-        self.lighter_order_info = {
-            'lighter_side': lighter_side,
-            'quantity': filled_size,
-            'price': price
-        }
-
-        self.waiting_for_lighter_fill = True
 
     async def trading_loop(self):
         """Main trading loop implementing the new strategy."""
@@ -996,8 +967,8 @@ class HedgeBot:
         await asyncio.sleep(5)
 
         iterations = 0
-        self.apex_position = 0
-        self.lighter_position = 0
+        self.apex_position = Decimal('0')
+        self.lighter_position = Decimal('0')
         while iterations < self.iterations and not self.stop_flag:
             iterations += 1
             self.logger.info("-----------------------------------------------")

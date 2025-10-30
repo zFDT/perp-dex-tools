@@ -394,15 +394,16 @@ class HedgeBot:
                 self.edgex_order_status = 'NEW'
                 order_id = await self.place_bbo_order(side, quantity)
                 start_time = time.time()
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(1)
             elif self.edgex_order_status in ['NEW', 'OPEN', 'PENDING', 'CANCELING']:
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.1)
                 if time.time() - start_time > self.fill_timeout:
                     try:
                         cancel_params = CancelOrderParams(order_id=order_id)
                         # Cancel the order using official SDK
                         self.logger.info(f"[{order_id}] [OPEN] [edgeX] [{side}] Time out - Canceling edgeX order.")
                         cancel_result = await self.edgex_client.cancel_order(cancel_params)
+                        await asyncio.sleep(1)
                     except Exception as e:
                         self.logger.error(f"❌ Error canceling edgeX order: {e}")
             elif self.edgex_order_status == 'FILLED':

@@ -1192,11 +1192,6 @@ class HedgeBot:
                 if time.time() - start_time2 > 180:
                     self.logger.error(f"❌ Timeout waiting for trade completion")
                     break
-
-            # Sleep after step 2
-            if self.sleep_time > 0:
-                self.logger.info(f"💤 Sleeping {self.sleep_time} seconds after STEP 2...")
-                await asyncio.sleep(self.sleep_time)
             
             # Close remaining position
             self.logger.info(f"[STEP 3] EdgeX position: {self.edgex_position} | Lighter position: {self.lighter_position}")

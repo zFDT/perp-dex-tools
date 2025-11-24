@@ -40,7 +40,10 @@ class HedgeBot:
         self.iterations = iterations
         self.sleep_time = sleep_time
         self.current_order = {}
-        self.max_position = max_position
+        if max_position == Decimal('0'):
+            self.max_position = order_quantity
+        else:
+            self.max_position = max_position        
 
         # Initialize logging to file
         os.makedirs("logs", exist_ok=True)
@@ -1110,7 +1113,7 @@ class HedgeBot:
             self.logger.info(f"🔄 Trading loop iteration {iterations}")
             self.logger.info("-----------------------------------------------")
 
-            while self.backpack_position <= self.max_position and not self.stop_flag:
+            while self.backpack_position < self.max_position and not self.stop_flag:
                 self.lighter_position = self.get_lighter_position()
                 self.backpack_position = await self.get_backpack_position()
                 self.logger.info(f"Buying up to {self.max_position} | Backpack position: {self.backpack_position} | Lighter position: {self.lighter_position}")
@@ -1153,7 +1156,7 @@ class HedgeBot:
                 await asyncio.sleep(self.sleep_time)
 
             exit_after_next_trade = False
-            while self.backpack_position >= -1*self.max_position and not self.stop_flag:
+            while self.backpack_position > -1*self.max_position and not self.stop_flag:
                 self.lighter_position = self.get_lighter_position()
                 self.backpack_position = await self.get_backpack_position()
                 self.logger.info(f"Selling up to -{self.max_position} | Backpack position: {self.backpack_position} | Lighter position: {self.lighter_position}")

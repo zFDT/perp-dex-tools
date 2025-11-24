@@ -121,7 +121,7 @@ async def main():
     print("-" * 50)
     
     try:
-        if args.exchange == 'backpack':
+        if args.exchange in ['backpack', 'edgex']:
             bot = HedgeBotClass(
                 ticker=args.ticker.upper(),
                 order_quantity=Decimal(args.size),

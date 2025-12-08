@@ -764,10 +764,8 @@ class HedgeBot:
         price = Decimal(order_data.get('price', '0'))
 
         if side == 'buy':
-            self.extended_position += filled_size
             lighter_side = 'sell'
         else:
-            self.extended_position -= filled_size
             lighter_side = 'buy'
 
         # Store order details for immediate execution

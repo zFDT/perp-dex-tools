@@ -6,6 +6,7 @@ import os
 import asyncio
 import json
 import traceback
+import time
 from decimal import Decimal
 from typing import Dict, Any, List, Optional, Tuple
 from nado_protocol.client import create_nado_client, NadoClientMode
@@ -293,16 +294,16 @@ class NadoClient(BaseExchangeClient):
             result = self.client.market.cancel_orders(
                 CancelOrdersParams(productIds=[self.config.contract_id], digests=[order_id], sender=sender)
             )
-            self.logger.log(f"Result: {result}", "INFO")
 
             if not result:
                 return OrderResult(success=False, error_message='Failed to cancel order')
 
-            order_info = self.client.context.indexer_client.get_historical_orders_by_digest([order_id])
-            self.logger.log(f"Order info: {order_info}", "INFO")
-            filled_size = Decimal(str(from_x18(order_info.orders[0].base_filled)))
+            order_info = await self.get_order_info(order_id)
 
-            return OrderResult(success=True, filled_size=filled_size)
+            filled_size = order_info.filled_size if order_info is not None else Decimal(0)
+            price = order_info.price if order_info is not None else Decimal(0)
+
+            return OrderResult(success=True, filled_size=filled_size, price=price)
 
         except Exception as e:
             self.logger.log(f"Error canceling order: {e}", "ERROR")
@@ -315,12 +316,6 @@ class NadoClient(BaseExchangeClient):
             # Get order info from Nado SDK
             # Note: Adjust method name if SDK uses different API
             order = self.client.context.engine_client.get_order(product_id=self.config.contract_id, digest=order_id)
-            self.logger.log(f"Order data: {order}", "INFO")
-
-            if not order:
-                return None
-
-            # Parse order data
             price_x18 = getattr(order, 'price_x18', None)
             amount_x18 = getattr(order, 'amount', None)
             unfilled_x18 = getattr(order, 'unfilled_amount', None)
@@ -343,8 +338,54 @@ class NadoClient(BaseExchangeClient):
             )
 
         except Exception as e:
-            self.logger.log(f"Error getting order info: {e}", "ERROR")
-            return None
+            attempt = 0
+            while attempt < 4:
+                attempt += 1
+                self.logger.log(f"Attempt {attempt} to get archived order info", "INFO")
+                try:
+                    order_result = self.client.context.indexer_client.get_historical_orders_by_digest([order_id])
+                    if order_result.orders != []:
+                        order = order_result.orders[0]
+                        # Parse order data
+                        price_x18 = getattr(order, 'price_x18', None)
+                        amount_x18 = getattr(order, 'amount', None)
+                        filled_x18 = getattr(order, 'base_filled', None)
+                        order_id = str(getattr(order, 'digest', None))
+
+                        if order.base_filled == order.amount:
+                            status = 'FILLED'
+                        else:
+                            status = 'CANCELLED'
+
+                        size = Decimal(str(from_x18(amount_x18))) if amount_x18 else Decimal(0)
+                        filled_size = Decimal(str(from_x18(filled_x18))) if filled_x18 else Decimal(0)
+                        remaining_size = size - filled_size
+
+                        side = 'buy' if size > 0 else 'sell'
+
+                        return OrderInfo(
+                            order_id=order_id,
+                            side=side,
+                            size=size,
+                            price=Decimal(str(from_x18(price_x18))),
+                            status=status,
+                            filled_size=filled_size,
+                            remaining_size=remaining_size
+                        )
+                except Exception as e:
+                    self.logger.log(f"Error getting order info after retry: {e}", "ERROR")
+
+                await asyncio.sleep(0.5)
+
+            return OrderInfo(
+                order_id=order_id,
+                side='',
+                size=Decimal(0),
+                price=Decimal(0),
+                status='CANCELLED',
+                filled_size=Decimal(0),
+                remaining_size=Decimal(0)
+            )
 
     @query_retry(default_return=[])
     async def get_active_orders(self, contract_id: str) -> List[OrderInfo]:

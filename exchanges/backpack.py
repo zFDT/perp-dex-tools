@@ -229,6 +229,8 @@ class BackpackClient(BaseExchangeClient):
             side = order_data.get('S', '')
             quantity = order_data.get('q', '0')
             price = order_data.get('p', '0')
+            if price == '0':
+                price = order_data.get('L', '0')
             fill_quantity = order_data.get('z', '0')
 
             # Only process orders for our symbol

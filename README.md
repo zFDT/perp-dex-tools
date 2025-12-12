@@ -142,32 +142,6 @@ Python 版本要求（最佳选项是 Python 3.10 - 3.12）：
    pip install -r apex_requirements.txt
    ```
 
-   **Nado 用户**：如果您想使用 Nado 交易所，需要额外创建一个虚拟环境并安装 Nado 专用依赖（因为 nado-protocol 与其他交易所 SDK 存在冲突）：
-
-   首先确保你目前不在任何虚拟环境中：
-
-   ```bash
-   deactivate
-   ```
-
-   创建 Nado 专用的虚拟环境（名称为 nado_env）：
-
-   ```bash
-   python3 -m venv nado_env
-   ```
-
-   激活虚拟环境（每次使用脚本时，都需要激活虚拟环境）：
-
-   ```bash
-   source nado_env/bin/activate  # Windows: nado_env\Scripts\activate
-   ```
-
-   安装 Nado 依赖
-
-   ```bash
-   pip install -r nado_requirements.txt
-   ```
-
 4. **设置环境变量**：
    在项目根目录创建`.env`文件，并使用 env_example.txt 作为样本，修改为你的 api 密匙。
 
@@ -422,8 +396,6 @@ python hedge_mode.py --exchange edgex --ticker BTC --size 0.001 --iter 20
 
 - `NADO_PRIVATE_KEY`: 您的钱包私钥
 - `NADO_MODE`: 网络模式（MAINNET 或 DEVNET，默认：MAINNET）
-
-**注意**：Nado 交易所需要在单独的虚拟环境中运行（`nado_env`），因为 nado-protocol SDK 与其他交易所 SDK 存在依赖冲突。
 
 **获取 LIGHTER_ACCOUNT_INDEX 的方法**：
 

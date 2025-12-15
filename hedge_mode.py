@@ -38,7 +38,7 @@ Examples:
     python hedge_mode.py --exchange backpack --ticker BTC --size 0.002 --iter 10
     python hedge_mode.py --exchange extended --ticker ETH --size 0.1 --iter 5
     python hedge_mode.py --exchange apex --ticker BTC --size 0.002 --iter 10
-    python hedge_mode.py --exchange grvt --ticker BTC --size 0.05 --iter 10
+    python hedge_mode.py --exchange grvt --ticker BTC --size 0.05 --iter 10 --max-position 0.1
     python hedge_mode.py --exchange edgex --ticker BTC --size 0.001 --iter 20
     python hedge_mode.py --exchange nado --ticker BTC --size 0.003 --iter 20 --max-position 0.05
         """
@@ -126,7 +126,7 @@ async def main():
     print("-" * 50)
     
     try:
-        if args.exchange in ['backpack', 'edgex', 'nado']:
+        if args.exchange in ['backpack', 'edgex', 'nado', 'grvt']:
             bot = HedgeBotClass(
                 ticker=args.ticker.upper(),
                 order_quantity=Decimal(args.size),

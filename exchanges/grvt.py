@@ -156,6 +156,9 @@ class GrvtClient(BaseExchangeClient):
                         price = leg.get('limit_price', '0')
                         filled_size = order_state.get('traded_size')[0] if order_state.get('traded_size') else '0'
 
+                        if Decimal(price) == 0:
+                            price = data.get('state', {}).get('avg_fill_price', ['0'])[0]
+
                         if order_id and status:
                             # Determine order type based on side
                             if side == self.config.close_order_side:
@@ -284,6 +287,19 @@ class GrvtClient(BaseExchangeClient):
             raise Exception('Paradex Server Error: Order not processed after 10 seconds')
         else:
             return order_info
+
+    async def place_market_order(self, contract_id: str, quantity: Decimal, side: str) -> OrderResult:
+        """Place a market order with GRVT using official SDK."""
+
+        # Place the order using GRVT SDK
+        order_result = self.rest_client.create_order(
+            symbol=contract_id,
+            order_type='market',
+            side=side,
+            amount=quantity
+        )
+        if not order_result:
+            raise Exception(f"[OPEN] Error placing order")
 
     async def get_order_price(self, direction: str) -> Decimal:
         """Get the price of an order with GRVT using official SDK."""

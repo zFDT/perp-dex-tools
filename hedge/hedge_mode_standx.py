@@ -267,8 +267,7 @@ class HedgeBot:
                     account_orders_channel = f"account_orders/{self.lighter_market_index}/{self.account_index}"
 
                     try:
-                        ten_minutes_deadline = int(time.time() + 10 * 60)
-                        auth_token, err = self.lighter_client.create_auth_token_with_expiry(ten_minutes_deadline)
+                        auth_token, err = self.lighter_client.create_auth_token_with_expiry(api_key_index=self.api_key_index)
                         if err is None:
                             auth_message = {
                                 "type": "subscribe",
@@ -357,10 +356,9 @@ class HedgeBot:
                 raise Exception("API_KEY_PRIVATE_KEY environment variable not set")
 
             self.lighter_client = SignerClient(
-                url=self.lighter_base_url,
-                private_key=api_key_private_key,
+                url=self.base_url,
                 account_index=self.account_index,
-                api_key_index=self.api_key_index,
+                api_private_keys={self.api_key_index: self.api_key_private_key}
             )
 
             err = self.lighter_client.check_client()

@@ -500,9 +500,7 @@ class HedgeBot:
 
                     # Get auth token for the subscription
                     try:
-                        # Set auth token to expire in 10 minutes
-                        ten_minutes_deadline = int(time.time() + 10 * 60)
-                        auth_token, err = self.lighter_client.create_auth_token_with_expiry(ten_minutes_deadline)
+                        auth_token, err = self.lighter_client.create_auth_token_with_expiry(api_key_index=self.api_key_index)
                         if err is not None:
                             self.logger.warning(f"⚠️ Failed to create auth token for account orders subscription: {err}")
                         else:
@@ -656,10 +654,9 @@ class HedgeBot:
                 raise Exception("API_KEY_PRIVATE_KEY environment variable not set")
 
             self.lighter_client = SignerClient(
-                url=self.lighter_base_url,
-                private_key=api_key_private_key,
+                url=self.base_url,
                 account_index=self.account_index,
-                api_key_index=self.api_key_index,
+                api_private_keys={self.api_key_index: self.api_key_private_key}
             )
 
             # Check client

@@ -138,7 +138,7 @@ class TradingBot:
 
                         if self.order_filled_amount > 0:
                             self.logger.log_transaction(order_id, side, self.order_filled_amount, message.get('price'), status)
-                            
+
                     # PATCH
                     if self.config.exchange == "extended":
                         self.logger.log(f"[{order_type}] [{order_id}] {status} "

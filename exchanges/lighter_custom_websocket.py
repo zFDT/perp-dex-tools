@@ -8,6 +8,7 @@ import json
 import time
 from typing import Dict, Any, List, Optional, Tuple, Callable
 import websockets
+import os
 
 
 class LighterCustomWebSocketManager:
@@ -19,7 +20,7 @@ class LighterCustomWebSocketManager:
         self.logger = None
         self.running = False
         self.ws = None
-
+        self.api_key_index = int(os.getenv('LIGHTER_API_KEY_INDEX', '0'))
         # Order book state
         self.order_book = {"bids": {}, "asks": {}}
         self.best_bid = None
@@ -259,9 +260,7 @@ class LighterCustomWebSocketManager:
                     # Get auth token for the subscription
                     try:
                         if self.lighter_client:
-                            # Set auth token to expire in 10 minutes
-                            ten_minutes_deadline = int(time.time() + 10 * 60)
-                            auth_token, err = self.lighter_client.create_auth_token_with_expiry(ten_minutes_deadline)
+                            auth_token, err = self.lighter_client.create_auth_token_with_expiry(api_key_index=self.api_key_index)
                             if err is not None:
                                 self._log(f"Failed to create auth token for account orders subscription: {err}", "WARNING")
                             else:

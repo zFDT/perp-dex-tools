@@ -522,9 +522,9 @@ class HedgeBot:
                 raise Exception("API_KEY_PRIVATE_KEY environment variable not set")
 
             self.lighter_client = SignerClient(
-                url=self.base_url,
+                url=self.lighter_base_url,
                 account_index=self.account_index,
-                api_private_keys={self.api_key_index: self.api_key_private_key}
+                api_private_keys={self.api_key_index: api_key_private_key}
             )
 
             # Check client

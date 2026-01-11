@@ -15,7 +15,6 @@ from decimal import Decimal
 from typing import Dict, Any, List, Optional, Tuple, Callable
 from nacl.signing import SigningKey
 from nacl.encoding import RawEncoder
-import nacl.bindings
 from dotenv import load_dotenv
 
 from eth_account import Account as EthAccount
@@ -200,7 +199,13 @@ class StandXWebSocketManager:
                 if self.logger:
                     self.logger.log("Connecting to StandX WebSocket", "INFO")
 
-                async with websockets.connect(self.ws_url) as ws:
+                # Server sends ping every 10 seconds, timeout after 5 minutes without pong
+                # Set ping_interval=None to let the server control pings, respond with pongs
+                async with websockets.connect(
+                    self.ws_url,
+                    ping_interval=20,  # Send pings every 20 seconds as backup
+                    ping_timeout=60,   # Wait 60 seconds for pong response
+                ) as ws:
                     self.websocket = ws
 
                     # Authenticate and subscribe to order channel
@@ -274,8 +279,8 @@ class StandXWebSocketManager:
         elif channel == 'order':
             await self._handle_order_update(data.get('data', {}))
         elif channel == 'auth':
-            code = data.get('data', {}).get('code', 0)
-            if code != 200:
+            message = data.get('data', {}).get('message', '')
+            if message != 'success':
                 if self.logger:
                     self.logger.log(f"WebSocket auth failed: {data}", "ERROR")
             else:
@@ -345,6 +350,7 @@ class StandXClient(BaseExchangeClient):
         self.ws_manager: Optional[StandXWebSocketManager] = None
         self.http_session: Optional[aiohttp.ClientSession] = None
         self.logger: Optional[TradingLogger] = None
+        self.new_order_status = None
 
     def _validate_config(self) -> None:
         """Validate StandX configuration."""
@@ -413,7 +419,7 @@ class StandXClient(BaseExchangeClient):
             if symbol != self.config.contract_id:
                 return
 
-            order_id = str(order_data.get('id', ''))
+            order_id = str(order_data.get('cl_ord_id', ''))
             side = order_data.get('side', '').lower()
             quantity = order_data.get('qty', '0')
             price = order_data.get('price', '0')
@@ -469,17 +475,14 @@ class StandXClient(BaseExchangeClient):
             if self.auth.token:
                 headers["Authorization"] = f"Bearer {self.auth.token}"
 
-        try:
-            if method == "GET":
-                async with self.http_session.get(url, headers=headers, params=params) as resp:
-                    return await resp.json()
-            elif method == "POST":
-                async with self.http_session.post(url, headers=headers, data=payload) as resp:
-                    return await resp.json()
-        except Exception as e:
-            if self.logger:
-                self.logger.log(f"HTTP request error: {e}", "ERROR")
-            raise
+        if method == "GET":
+            async with self.http_session.get(url, headers=headers, params=params) as resp:
+                resp.raise_for_status()
+                return await resp.json()
+        elif method == "POST":
+            async with self.http_session.post(url, headers=headers, data=payload) as resp:
+                resp.raise_for_status()
+                return await resp.json()
 
     @query_retry(default_return=(Decimal('0'), Decimal('0')))
     async def fetch_bbo_prices(self, contract_id: str) -> Tuple[Decimal, Decimal]:
@@ -527,7 +530,7 @@ class StandXClient(BaseExchangeClient):
 
     async def place_open_order(self, contract_id: str, quantity: Decimal, direction: str) -> OrderResult:
         """Place an open order with StandX."""
-        max_retries = 15
+        max_retries = 30
         retry_count = 0
 
         while retry_count < max_retries:
@@ -545,9 +548,10 @@ class StandXClient(BaseExchangeClient):
                 side = 'sell'
 
             order_price = self.round_to_tick(order_price)
-
+            cl_ord_id = str(uuid.uuid4())
             payload = {
                 "symbol": contract_id,
+                "cl_ord_id": cl_ord_id,
                 "side": side,
                 "order_type": "limit",
                 "qty": str(quantity),
@@ -556,17 +560,21 @@ class StandXClient(BaseExchangeClient):
                 "reduce_only": False
             }
 
-            result = await self._make_request("POST", "/api/new_order",
-                                              data=payload, signed=True)
+            await self._make_request("POST", "/api/new_order", data=payload, signed=True)
 
-            if result.get('code', -1) != 0:
-                message = result.get('message', 'Unknown error')
-                self.logger.log(f"[OPEN] Order rejected: {message}", "WARNING")
-                continue
+            try:
+                await self._make_request("GET", "/api/query_order", params={"cl_ord_id": cl_ord_id})
+            except Exception:
+                await asyncio.sleep(0.2)
+                try:
+                    await self._make_request("GET", "/api/query_order", params={"cl_ord_id": cl_ord_id})
+                except Exception:
+                    self.logger.log("[OPEN] Order rejected for post-only", "INFO")
+                    continue
 
             return OrderResult(
                 success=True,
-                order_id=result.get('request_id', ''),
+                order_id=cl_ord_id,
                 side=side,
                 size=quantity,
                 price=order_price,
@@ -578,10 +586,11 @@ class StandXClient(BaseExchangeClient):
     async def place_market_order(self, contract_id: str, quantity: Decimal, direction: str) -> OrderResult:
         """Place a market order with StandX."""
         side = 'buy' if direction == 'buy' else 'sell'
-
+        order_id = str(uuid.uuid4())
         payload = {
             "symbol": contract_id,
             "side": side,
+            "cl_ord_id": order_id,
             "order_type": "market",
             "qty": str(quantity),
             "time_in_force": "ioc",  # Immediate or cancel
@@ -596,7 +605,7 @@ class StandXClient(BaseExchangeClient):
 
         return OrderResult(
             success=True,
-            order_id=result.get('request_id', ''),
+            order_id=order_id,
             side=side,
             size=quantity,
             status='FILLED'
@@ -604,7 +613,7 @@ class StandXClient(BaseExchangeClient):
 
     async def place_close_order(self, contract_id: str, quantity: Decimal, price: Decimal, side: str) -> OrderResult:
         """Place a close order with StandX."""
-        max_retries = 15
+        max_retries = 30
         retry_count = 0
 
         while retry_count < max_retries:
@@ -623,9 +632,10 @@ class StandXClient(BaseExchangeClient):
                     adjusted_price = best_ask - self.config.tick_size
 
             adjusted_price = self.round_to_tick(adjusted_price)
-
+            cl_ord_id = str(uuid.uuid4())
             payload = {
                 "symbol": contract_id,
+                "cl_ord_id": cl_ord_id,
                 "side": side.lower(),
                 "order_type": "limit",
                 "qty": str(quantity),
@@ -636,6 +646,15 @@ class StandXClient(BaseExchangeClient):
 
             result = await self._make_request("POST", "/api/new_order",
                                               data=payload, signed=True)
+            try:
+                await self._make_request("GET", "/api/query_order", params={"cl_ord_id": cl_ord_id})
+            except Exception:
+                await asyncio.sleep(0.2)
+                try:
+                    await self._make_request("GET", "/api/query_order", params={"cl_ord_id": cl_ord_id})
+                except Exception:
+                    self.logger.log("[CLOSE] Order rejected for post-only", "INFO")
+                    continue
 
             if result.get('code', -1) != 0:
                 message = result.get('message', 'Unknown error')
@@ -644,7 +663,7 @@ class StandXClient(BaseExchangeClient):
 
             return OrderResult(
                 success=True,
-                order_id=result.get('request_id', ''),
+                order_id=cl_ord_id,
                 side=side.lower(),
                 size=quantity,
                 price=adjusted_price,
@@ -656,7 +675,7 @@ class StandXClient(BaseExchangeClient):
     async def cancel_order(self, order_id: str) -> OrderResult:
         """Cancel an order with StandX."""
         try:
-            payload = {"order_id": int(order_id)}
+            payload = {"cl_ord_id": order_id}
             result = await self._make_request("POST", "/api/cancel_order",
                                               data=payload, signed=True)
 
@@ -672,7 +691,7 @@ class StandXClient(BaseExchangeClient):
     async def get_order_info(self, order_id: str) -> Optional[OrderInfo]:
         """Get order information from StandX."""
         result = await self._make_request("GET", "/api/query_order",
-                                          params={"order_id": order_id})
+                                          params={"cl_ord_id": order_id})
 
         if not result or 'id' not in result:
             return None
@@ -687,7 +706,7 @@ class StandXClient(BaseExchangeClient):
         }
 
         return OrderInfo(
-            order_id=str(result.get('id', '')),
+            order_id=str(result.get('cl_ord_id', '')),
             side=result.get('side', '').lower(),
             size=Decimal(result.get('qty', '0')),
             price=Decimal(result.get('price', '0')),
@@ -707,7 +726,7 @@ class StandXClient(BaseExchangeClient):
 
         for order in order_list:
             orders.append(OrderInfo(
-                order_id=str(order.get('id', '')),
+                order_id=str(order.get('cl_ord_id', '')),
                 side=order.get('side', '').lower(),
                 size=Decimal(order.get('qty', '0')),
                 price=Decimal(order.get('price', '0')),

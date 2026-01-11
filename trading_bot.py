@@ -286,7 +286,8 @@ class TradingBot:
                     current_order_status = self.exchange_client.current_order.status
                 else:
                     order_info = await self.exchange_client.get_order_info(order_id)
-                    current_order_status = order_info.status
+                    if order_info is not None:
+                        current_order_status = order_info.status
                 new_order_price = await self.exchange_client.get_order_price(self.config.direction)
 
             self.order_canceled_event.clear()
@@ -379,6 +380,7 @@ class TradingBot:
 
                 # Get positions
                 position_amt = await self.exchange_client.get_account_positions()
+                position_amt = abs(position_amt)
 
                 # Calculate active closing amount
                 active_close_amount = sum(

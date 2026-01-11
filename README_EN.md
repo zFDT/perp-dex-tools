@@ -29,11 +29,16 @@ You will get 10% taker fee discount rebates and potential future benefits
 You will get 30% fee rebates and points boost
 
 #### grvt: [https://grvt.io/exchange/sign-up?ref=QUANT](https://grvt.io/exchange/sign-up?ref=QUANT)
+
 You will get 1.3x points boost; rebates (auto rebates system is expected to be launched in mid-Oct); access to private trading competition
 
 #### Extended: [https://app.extended.exchange/join/QUANT](https://app.extended.exchange/join/QUANT)
+
 10% fee discount; points boost (black box, but "you will get more points from affiliate referral program than using another account to refer yourself" quoted from the official documentation from Extended); access to private trading competition
 
+#### ApeX: [https://join.omni.apex.exchange/quant](https://join.omni.apex.exchange/quant)
+
+30% fee rebates; 5% fee discount; points boost
 
 ## Installation
 
@@ -105,6 +110,20 @@ You will get 1.3x points boost; rebates (auto rebates system is expected to be l
 
    ```bash
    pip install -r para_requirements.txt
+   ```
+
+   **Apex Users**: If you want to use Apex exchange, you need to install Apex dependencies:
+
+   First, make sure you are not currently in any virtual environment:
+
+   ```bash
+   source env/bin/activate  # Windows: env\Scripts\activate
+   ```
+
+   Install Apex dependencies
+
+   ```bash
+   pip install -r apex_requirements.txt
    ```
 
 4. **Set up environment variables**:
@@ -248,6 +267,46 @@ ETH:
 python runbot.py --exchange extended --ticker ETH --quantity 0.1 --take-profit 0 --max-orders 40 --wait-time 450 --grid-step 0.01
 ```
 
+## 🆕 Hedge Mode
+
+The new Hedge Mode (`hedge_mode.py`) is an trading strategy that reduces risk by simultaneously hedging trades across two exchanges:
+
+### How Hedge Mode Works
+
+1. **Opening Phase**: Place maker order at selected exchange (e.g., Backpack)
+2. **Hedging Phase**: After order fills, immediately place market order at Lighter to hedge
+3. **Closing Phase**: Place another maker order at selected exchange to close position
+4. **Hedge Closing**: Place market order at Lighter to close hedge position
+
+### Hedge Mode Usage Examples
+
+```bash
+# Run BTC hedge mode with Backpack
+python hedge_mode.py --exchange backpack --ticker BTC --size 0.05 --iter 20 --max-position 1
+
+# Run ETH hedge mode with Extended
+python hedge_mode.py --exchange extended --ticker ETH --size 0.1 --iter 20
+
+# Run BTC hedge mode with Apex
+python hedge_mode.py --exchange apex --ticker BTC --size 0.05 --iter 20
+
+# Run BTC hedge mode with GRVT
+python hedge_mode.py --exchange grvt --ticker BTC --size 0.05 --iter 20
+
+# Run BTC hedge mode with edgeX
+python hedge_mode.py --exchange edgex --ticker BTC --size 0.001 --iter 20
+```
+
+### Hedge Mode Parameters
+
+- `--exchange`: Primary exchange (supports 'backpack', 'extended', 'apex', 'grvt', 'edgex')
+- `--ticker`: Trading pair symbol (e.g., BTC, ETH)
+- `--size`: Order quantity per trade
+- `--iter`: Number of trading cycles
+- `--fill-timeout`: Maker order fill timeout in seconds (default: 5)
+- `--sleep`: Sleep time in seconds after each step (default: 0)
+- `--max-position`: When this parameter is set, the hedging mode will gradually build a position up to the specified maximum size while performing the hedge. The unit is in the base asset. For example, when running BTC, setting it to 0.1 means it will gradually build a position up to 0.1 BTC while hedging.
+
 ## Configuration
 
 ### Environment Variables
@@ -301,6 +360,13 @@ python runbot.py --exchange extended --ticker ETH --quantity 0.1 --take-profit 0
 - `EXTENDED_STARK_KEY_PUBLIC`: Your Stark public key
 - `EXTENDED_STARK_KEY_PRIVATE`: Your Stark private key
 - `EXTENDED_VAULT`: Your Extended Vault ID
+
+#### Apex Configuration
+
+- `APEX_API_KEY`: Your Apex API key
+- `APEX_API_KEY_PASSPHRASE`: Your Apex API key passphrase
+- `APEX_API_KEY_SECRET`: Your Apex API key secret
+- `APEX_OMNI_KEY_SEED`: Your Apex Omni key seed
 
 **How to get LIGHTER_ACCOUNT_INDEX**:
 

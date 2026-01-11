@@ -143,7 +143,6 @@ class ExtendedClient(BaseExchangeClient):
             active_orders = await self.get_active_orders(self.config.contract_id)
             for order in active_orders:
                 if order.side == "buy":
-                    self.logger.log(f"Canceling order with internal ID: {order.order_id}", "INFO")
                     await self.cancel_order(order.order_id)
                 
             
@@ -212,7 +211,7 @@ class ExtendedClient(BaseExchangeClient):
                     await asyncio.sleep(1)
                     self.logger.log(f"Orderbook is not updated yet, sleeping for 1 second", level="INFO")
                     continue
-                
+
                 best_bid, best_ask = await self.fetch_bbo_prices(contract_id)
 
                 if best_bid <= 0 or best_ask <= 0:
@@ -239,6 +238,7 @@ class ExtendedClient(BaseExchangeClient):
                     side=side,
                     time_in_force=TimeInForce.GTT,
                     post_only=True,  # Ensure MAKER orders
+                    expire_time = utc_now() + timedelta(days=1), # SDK 1 hour default
                 )
 
                 if not order_result or not order_result.data or order_result.status != 'OK':
@@ -303,7 +303,8 @@ class ExtendedClient(BaseExchangeClient):
         while retry_count < max_retries:
             try:
                 best_bid, best_ask = await self.fetch_bbo_prices(contract_id)
-
+                print(f"best_bid: {best_bid}, best_ask: {best_ask}")
+                print('--------------------------------')
                 if best_bid <= 0 or best_ask <= 0:
                     return OrderResult(success=False, error_message='Invalid bid/ask prices')
 
@@ -350,7 +351,8 @@ class ExtendedClient(BaseExchangeClient):
                     price=rounded_price,
                     side=order_side,
                     time_in_force=TimeInForce.GTT,
-                    post_only=True  # Ensure MAKER orders
+                    post_only=True,  # Ensure MAKER orders
+                    expire_time = utc_now() + timedelta(days=90), # SDK 1 hour default
                 )
 
                 if not order_result or not order_result.data or order_result.status != 'OK':
@@ -387,9 +389,9 @@ class ExtendedClient(BaseExchangeClient):
                             status=order_info.status
                         )
                     elif order_info.status == 'REJECTED':
-                        return OrderResult(success=False, error_message=f'Close order rejected: {order_info.status_reason}')
+                        raise Exception(f'Close order rejected: {order_info.status}')
                     else:
-                        return OrderResult(success=False, error_message=f'Unexpected close order status: {order_info.status}')
+                        raise Exception(f'Unexpected close order status: {order_info.status}')
                 else:
                     # Assume order is successful if we can't get info
                     self.logger.log(f"Could not get order info for {order_id}, assuming order is successful", level="ERROR")
@@ -414,15 +416,12 @@ class ExtendedClient(BaseExchangeClient):
     async def cancel_order(self, order_id: str) -> OrderResult:
         """Cancel an order with Extended using the internal order ID."""
         try:
-            self.logger.log(f"Canceling order with internal ID: {order_id}", level="INFO")
-            
             # save this
             prev_partially_filled_size = self.partially_filled_size
             prev_partially_filled_avg_price = self.partially_filled_avg_price
 
             # cancel the order
             cancel_result = await self.perpetual_trading_client.orders.cancel_order(order_id)
-            self.logger.log(f"cancel_result: {cancel_result}", level="INFO")
 
             if not cancel_result or not cancel_result.data:
                 self.logger.log(f"Failed to cancel order {order_id}: {cancel_result}", level="ERROR")
@@ -454,10 +453,8 @@ class ExtendedClient(BaseExchangeClient):
                     # filled_size is 0
                     pass
             else:
-                self.logger.log(f"Could not get order info for {order_id} when cancelling order, returning filled_size as 0", level="ERROR")
-            
+                self.logger.log(f"Could not get order info for {order_id} when cancelling order, returning filled_size as 0", level="ERROR")            
 
-            self.logger.log(f"Successfully canceled order {order_id}", level="INFO")
             return OrderResult(success=True, filled_size=filled_size)
 
         except Exception as e:
@@ -465,56 +462,59 @@ class ExtendedClient(BaseExchangeClient):
 
     async def get_order_info(self, order_id: str) -> Optional[OrderInfo]:
         """Get order information using REST API endpoint."""
-        try:
-            url = f"https://api.starknet.extended.exchange/api/v1/user/orders/{order_id}"
-            headers = {
-                "X-Api-Key": self.api_key,
-                "User-Agent": "User-Agent"
-            }
+        order_info = None
+        url = f"https://api.starknet.extended.exchange/api/v1/user/orders/{order_id}"
+        headers = {
+            "X-Api-Key": self.api_key,
+            "User-Agent": "User-Agent"
+        }
+
+        attempt = 0
+        while not order_info and attempt < 50:
+            attempt += 1
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url, headers=headers) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            
+                            if data.get("status") != "OK" or not data.get("data"):
+                                self.logger.log(f"Failed to get order info attempt {attempt} for {order_id}: {data}", "ERROR")
+                                return None
+                            
+                            order_data = data["data"]
+                            
+                            # Convert status to match expected format
+                            status = order_data.get("status", "")
+                            if status == "NEW":
+                                status = "OPEN"
+                            elif status == "CANCELLED":
+                                status = "CANCELED"
+                            
+                            # Create OrderInfo object
+                            order_info = OrderInfo(
+                                order_id=str(order_data.get("id", "")),
+                                side=order_data.get("side", "").lower(),
+                                size=Decimal(order_data.get("qty", "0")) - Decimal(order_data.get("filledQty", "0")),
+                                price=Decimal(order_data.get("price", "0")),
+                                status=status,
+                                filled_size=Decimal(order_data.get("filledQty", "0")),
+                                remaining_size=Decimal(order_data.get("qty", "0")) - Decimal(order_data.get("filledQty", "0"))
+                            )
+                            return order_info
+                        
+                        elif response.status == 404:
+                            # Order not found
+                            self.logger.log(f"Order {order_id} not found attempt {attempt}", "INFO")
+                        
+                        else:
+                            self.logger.log(f"Failed to get order info attempt {attempt} for {order_id}: HTTP {response.status}", "ERROR")
+                            
+            except Exception as e:
+                self.logger.log(f"Error getting order info attempt {attempt} for {order_id}: {str(e)}", "ERROR")
             
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        
-                        if data.get("status") != "OK" or not data.get("data"):
-                            self.logger.log(f"Failed to get order info for {order_id}: {data}", "ERROR")
-                            return None
-                        
-                        order_data = data["data"]
-                        
-                        # Convert status to match expected format
-                        status = order_data.get("status", "")
-                        if status == "NEW":
-                            status = "OPEN"
-                        elif status == "CANCELLED":
-                            status = "CANCELED"
-                        
-                        # Create OrderInfo object
-                        order_info = OrderInfo(
-                            order_id=str(order_data.get("id", "")),
-                            side=order_data.get("side", "").lower(),
-                            size=Decimal(order_data.get("qty", "0")) - Decimal(order_data.get("filledQty", "0")),
-                            price=Decimal(order_data.get("price", "0")),
-                            status=status,
-                            filled_size=Decimal(order_data.get("filledQty", "0")),
-                            remaining_size=Decimal(order_data.get("qty", "0")) - Decimal(order_data.get("filledQty", "0"))
-                        )
-                        
-                        return order_info
-                    
-                    elif response.status == 404:
-                        # Order not found
-                        self.logger.log(f"Order {order_id} not found", "INFO")
-                        return None
-                    
-                    else:
-                        self.logger.log(f"Failed to get order info for {order_id}: HTTP {response.status}", "ERROR")
-                        return None
-                        
-        except Exception as e:
-            self.logger.log(f"Error getting order info for {order_id}: {str(e)}", "ERROR")
-            return None
+            await asyncio.sleep(0.5)
+        return order_info
 
     async def get_active_orders(self, contract_id: str) -> List[OrderInfo]:
         """Get active orders for a contract using official SDK."""
@@ -659,12 +659,6 @@ class ExtendedClient(BaseExchangeClient):
                             self.open_orders[order_id] = order
                         elif status == "CANCELED" or status == "FILLED":
                             self.open_orders.pop(order_id, None)
-                                                                 
-                        # self.logger.log(f"Open orders: {self.open_orders}", "INFO")
-
-                        # ignore canceled close orders
-                        if status == "CANCELED" and order_type == "CLOSE":
-                            return
                         
                         if status in ['OPEN', 'PARTIALLY_FILLED', 'FILLED', 'CANCELED']:
                             if self._order_update_handler:

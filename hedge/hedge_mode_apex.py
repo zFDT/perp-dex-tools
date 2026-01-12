@@ -756,7 +756,7 @@ class HedgeBot:
         try:
             client_order_index = int(time.time() * 1000)
             # Sign the order transaction
-            tx_info, error = self.lighter_client.sign_create_order(
+            tx, tx_hash, error = await self.lighter_client.create_order(
                 market_index=self.lighter_market_index,
                 client_order_index=client_order_index,
                 base_amount=int(quantity * self.base_amount_multiplier),
@@ -768,13 +768,7 @@ class HedgeBot:
                 trigger_price=0,
             )
             if error is not None:
-                raise Exception(f"Sign error: {error}")
-
-            # Prepare the form data
-            tx_hash = await self.lighter_client.send_tx(
-                tx_type=self.lighter_client.TX_TYPE_CREATE_ORDER,
-                tx_info=tx_info
-            )
+                raise Exception(f"Error placing Lighter order: {error}")
 
             self.logger.info(f"[{client_order_index}] [{order_type}] [Lighter] [OPEN]: {quantity}")
 

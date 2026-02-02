@@ -104,9 +104,8 @@ class LighterClient(BaseExchangeClient):
             try:
                 self.lighter_client = SignerClient(
                     url=self.base_url,
-                    private_key=self.api_key_private_key,
                     account_index=self.account_index,
-                    api_key_index=self.api_key_index,
+                    api_private_keys={self.api_key_index: self.api_key_private_key}
                 )
 
                 # Check client
@@ -439,7 +438,7 @@ class LighterClient(BaseExchangeClient):
             await self._initialize_lighter_client()
 
         # Generate auth token for API call
-        auth_token, error = self.lighter_client.create_auth_token_with_expiry()
+        auth_token, error = self.lighter_client.create_auth_token_with_expiry(api_key_index=self.api_key_index)
         if error is not None:
             self.logger.log(f"Error creating auth token: {error}", "ERROR")
             raise ValueError(f"Error creating auth token: {error}")

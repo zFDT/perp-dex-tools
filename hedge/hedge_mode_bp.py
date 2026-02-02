@@ -360,9 +360,7 @@ class HedgeBot:
 
                     # Get auth token for the subscription
                     try:
-                        # Set auth token to expire in 10 minutes
-                        ten_minutes_deadline = int(time.time() + 10 * 60)
-                        auth_token, err = self.lighter_client.create_auth_token_with_expiry(ten_minutes_deadline)
+                        auth_token, err = self.lighter_client.create_auth_token_with_expiry(api_key_index=self.api_key_index)
                         if err is not None:
                             self.logger.warning(f"⚠️ Failed to create auth token for account orders subscription: {err}")
                         else:
@@ -512,9 +510,8 @@ class HedgeBot:
 
             self.lighter_client = SignerClient(
                 url=self.lighter_base_url,
-                private_key=api_key_private_key,
                 account_index=self.account_index,
-                api_key_index=self.api_key_index,
+                api_private_keys={self.api_key_index: api_key_private_key}
             )
 
             # Check client
@@ -778,7 +775,7 @@ class HedgeBot:
         try:
             client_order_index = int(time.time() * 1000)
             # Sign the order transaction
-            tx_info, error = self.lighter_client.sign_create_order(
+            tx, tx_hash, error = await self.lighter_client.create_order(
                 market_index=self.lighter_market_index,
                 client_order_index=client_order_index,
                 base_amount=int(quantity * self.base_amount_multiplier),
@@ -790,13 +787,7 @@ class HedgeBot:
                 trigger_price=0,
             )
             if error is not None:
-                raise Exception(f"Sign error: {error}")
-
-            # Prepare the form data
-            tx_hash = await self.lighter_client.send_tx(
-                tx_type=self.lighter_client.TX_TYPE_CREATE_ORDER,
-                tx_info=tx_info
-            )
+                raise Exception(f"Error placing Lighter order: {error}")
 
             self.logger.info(f"[{client_order_index}] [{order_type}] [Lighter] [OPEN]: {quantity}")
 

@@ -203,9 +203,8 @@ class HedgeBot:
 
             self.lighter_client = SignerClient(
                 url=self.lighter_base_url,
-                private_key=api_key_private_key,
-                api_key_index=self.api_key_index,
                 account_index=self.account_index,
+                api_private_keys={self.api_key_index: api_key_private_key}
             )
 
             # Check client
@@ -628,9 +627,7 @@ class HedgeBot:
 
                     # Get auth token for the subscription
                     try:
-                        # Set auth token to expire in 10 minutes
-                        ten_minutes_deadline = int(time.time() + 10 * 60)
-                        auth_token, err = self.lighter_client.create_auth_token_with_expiry(ten_minutes_deadline)
+                        auth_token, err = self.lighter_client.create_auth_token_with_expiry(api_key_index=self.api_key_index)
                         if err is not None:
                             self.logger.warning(f"⚠️ Failed to create auth token for account orders subscription: {err}")
                         else:
@@ -838,7 +835,7 @@ class HedgeBot:
         
         try:
             # Use the native SignerClient's create_order method
-            created_order, tx_hash, error = await self.lighter_client.create_order(
+            tx, tx_hash, error = await self.lighter_client.create_order(
                 market_index=self.lighter_market_index,
                 client_order_index=client_order_index,
                 base_amount=int(quantity * self.base_amount_multiplier),
@@ -849,10 +846,8 @@ class HedgeBot:
                 reduce_only=False,
                 trigger_price=0,
             )
-            
             if error is not None:
-                self.logger.error(f"❌ Lighter order error: {error}")
-                return None
+                raise Exception(f"Error placing Lighter order: {error}")
 
             self.logger.info(f"🚀 Lighter limit order sent: {lighter_side} {quantity} @ {order_price}")
             

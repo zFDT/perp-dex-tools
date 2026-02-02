@@ -24,7 +24,7 @@ class EtherealClient(BaseExchangeClient):
         self.base_url = os.getenv("ETHEREAL_BASE_URL", "https://api.ethereal.trade")
         self.rpc_url = os.getenv("ETHEREAL_RPC_URL", "https://rpc.ethereal.trade")
         self.private_key = os.getenv("ETHEREAL_PRIVATE_KEY")  # required for signing
-        self.chain_id = int(os.getenv("ETHEREAL_CHAIN_ID", "42161"))
+        self.chain_id = int(os.getenv("ETHEREAL_CHAIN_ID", "5064014"))
         self.ws_url = os.getenv("ETHEREAL_WS_URL", "wss://ws.ethereal.trade")
 
         # Account / trading context

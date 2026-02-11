@@ -33,6 +33,7 @@ class TradingConfig:
     instance_id: str = "default"  # Unique identifier for the bot instance
     stop_price: Decimal = Decimal(-1)
     pause_price: Decimal = Decimal(-1)
+    stop_loss: Decimal = Decimal(-1)  # Stop loss percentage (e.g., 0.4 = 0.4% loss)
     boost_mode: bool = False
 
     @property
@@ -332,6 +333,22 @@ class TradingBot:
                 # Place close order
                 close_side = self.config.close_order_side
                 close_price = self._calculate_close_price(filled_price)
+                
+                # Also place stop-loss order if configured
+                if self.config.stop_loss > 0:
+                    stop_loss_price = self._calculate_stop_loss_price(filled_price)
+                    self.logger.log(f"[STOP-LOSS] Setting stop-loss order at {stop_loss_price} ({self.config.stop_loss}%)", "INFO")
+                    
+                    # Place stop-loss order first
+                    stop_loss_order_result = await self.exchange_client.place_close_order(
+                        self.config.contract_id,
+                        self.config.quantity,
+                        stop_loss_price,
+                        close_side
+                    )
+                    
+                    if stop_loss_order_result.success:
+                        self.logger.log(f"[STOP-LOSS] Order placed: {stop_loss_order_result.order_id}", "INFO")
 
                 close_order_result = await self.exchange_client.place_close_order(
                     self.config.contract_id,
@@ -759,3 +776,12 @@ class TradingBot:
             return filled_price * (Decimal('1') + self.config.take_profit / Decimal('100'))
         else:
             return filled_price * (Decimal('1') - self.config.take_profit / Decimal('100'))
+
+    def _calculate_stop_loss_price(self, filled_price: Decimal) -> Decimal:
+        """Calculate the stop-loss price based on the filled price and stop loss percentage."""
+        if self.config.close_order_side == 'sell':
+            # For sell close (buy open), stop-loss is higher (loss when price goes up)
+            return filled_price * (Decimal('1') + self.config.stop_loss / Decimal('100'))
+        else:
+            # For buy close (sell open), stop-loss is lower (loss when price goes down)
+            return filled_price * (Decimal('1') - self.config.stop_loss / Decimal('100'))

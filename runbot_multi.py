@@ -67,6 +67,7 @@ def create_trading_config(ticker_config: Dict[str, Any], common_params: Dict[str
         instance_id=params['instance_id'],
         stop_price=Decimal(str(params.get('stop_price', -1))),
         pause_price=Decimal(str(params.get('pause_price', -1))),
+        stop_loss=Decimal(str(params.get('stop-loss', params.get('stop_loss', -1)))),
         boost_mode=params.get('boost_mode', False)
     )
     

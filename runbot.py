@@ -50,6 +50,8 @@ def parse_arguments():
     parser.add_argument('--pause-price', type=Decimal, default=-1,
                         help='Pause trading and wait. Buy: pause if price >= pause-price.'
                         'Sell: pause if price <= pause-price. (default: -1, no pause)')
+    parser.add_argument('--stop-loss', type=Decimal, default=-1,
+                        help='Stop-loss percentage (e.g., 0.4 = 0.4%% loss). Places a stop-loss order automatically. (default: -1, no stop-loss)')
     parser.add_argument('--boost', action='store_true',
                         help='Use the Boost mode for volume boosting')
 
@@ -120,6 +122,7 @@ async def main():
         instance_id=args.instance_id,
         stop_price=Decimal(args.stop_price),
         pause_price=Decimal(args.pause_price),
+        stop_loss=Decimal(args.stop_loss),
         boost_mode=args.boost
     )
 

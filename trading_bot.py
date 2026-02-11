@@ -13,7 +13,7 @@ from datetime import datetime
 
 from exchanges import ExchangeFactory
 from helpers import TradingLogger
-from helpers.lark_bot import LarkBot
+from helpers.lark_webhook import get_lark_webhook_bot, CardColor
 from helpers.telegram_bot import TelegramBot
 
 
@@ -100,28 +100,39 @@ class TradingBot:
 
     async def send_startup_notification(self):
         """Send startup notification to Lark."""
-        lark_token = os.getenv("LARK_TOKEN")
-        if lark_token:
+        bot = get_lark_webhook_bot()
+        if bot:
             try:
-                async with LarkBot(lark_token) as bot:
-                    startup_data = {
-                        "quantity": str(self.config.quantity),
-                        "take_profit": str(self.config.take_profit),
-                        "direction": self.config.direction,
-                        "max_orders": self.config.max_orders,
-                        "wait_time": self.config.wait_time,
-                        "grid_step": str(self.config.grid_step)
-                    }
-                    
-                    await bot.send_notification(
-                        notification_type="startup",
-                        instance_id=self.config.instance_id,
-                        exchange=self.config.exchange,
-                        ticker=self.config.ticker,
-                        message=f"Trading bot started with instance ID: {self.config.instance_id}",
-                        data=startup_data
-                    )
-                    self.logger.log(f"Startup notification sent for instance: {self.config.instance_id}", "INFO")
+                # 构建策略参数字符串
+                strategy_params = (
+                    f"Direction={self.config.direction} | "
+                    f"Qty={self.config.quantity} | "
+                    f"TP={self.config.take_profit}% | "
+                    f"MaxOrders={self.config.max_orders} | "
+                    f"Wait={self.config.wait_time}s | "
+                    f"Grid={self.config.grid_step}%"
+                )
+                
+                metrics = {
+                    "数量": str(self.config.quantity),
+                    "止盈": f"{self.config.take_profit}%",
+                    "方向": self.config.direction.upper(),
+                    "最大订单": str(self.config.max_orders),
+                    "等待时间": f"{self.config.wait_time}秒",
+                    "网格步长": f"{self.config.grid_step}%"
+                }
+                
+                await bot.send_system_status(
+                    status_type='startup',
+                    message=f"交易机器人已启动",
+                    metrics=metrics,
+                    instance_id=self.config.instance_id,
+                    exchange=self.config.exchange,
+                    ticker=self.config.ticker,
+                    strategy=strategy_params,
+                    color=CardColor.GREEN
+                )
+                self.logger.log(f"Startup notification sent for instance: {self.config.instance_id}", "INFO")
             except Exception as e:
                 self.logger.log(f"Failed to send startup notification: {e}", "ERROR")
 
@@ -455,25 +466,26 @@ class TradingBot:
                     self.logger.log("请手动平衡当前仓位和正在关闭的仓位", "ERROR")
                     self.logger.log("###### ERROR ###### ERROR ###### ERROR ###### ERROR #####", "ERROR")
 
-                    lark_token = os.getenv("LARK_TOKEN")
-                    if lark_token:
+                    bot = get_lark_webhook_bot()
+                    if bot:
                         try:
-                            async with LarkBot(lark_token) as bot:
-                                error_data = {
-                                    "current_position": str(position_amt),
-                                    "active_closing_amount": str(active_close_amount),
-                                    "position_difference": str(abs(position_amt - active_close_amount)),
-                                    "max_allowed_difference": str(2 * self.config.quantity)
-                                }
-                                
-                                await bot.send_notification(
-                                    notification_type="error",
-                                    instance_id=self.config.instance_id,
-                                    exchange=self.config.exchange,
-                                    ticker=self.config.ticker,
-                                    message="Position mismatch detected! Manual intervention required.",
-                                    data=error_data
-                                )
+                            strategy_params = (
+                                f"Direction={self.config.direction} | "
+                                f"Qty={self.config.quantity} | "
+                                f"TP={self.config.take_profit}% | "
+                                f"MaxOrders={self.config.max_orders}"
+                            )
+                            
+                            await bot.send_error_alert(
+                                error_type="仓位不匹配",
+                                error_message="Position mismatch detected! Manual intervention required.",
+                                instance=self.config.instance_id,
+                                exchange=self.config.exchange,
+                                ticker=self.config.ticker,
+                                strategy=strategy_params,
+                                traceback_preview=f"当前仓位: {position_amt}\n活跃平仓数量: {active_close_amount}\n差异: {abs(position_amt - active_close_amount)}",
+                                error_count=1
+                            )
                         except Exception as e:
                             self.logger.log(f"Failed to send error notification: {e}", "ERROR")
                     
@@ -508,29 +520,36 @@ class TradingBot:
                     
                     self.logger.log(hourly_stats_message, "INFO")
                     
-                    lark_token = os.getenv("LARK_TOKEN")
-                    if lark_token:
+                    bot = get_lark_webhook_bot()
+                    if bot:
                         try:
-                            async with LarkBot(lark_token) as bot:
-                                stats_data = {
-                                    "position_operations": self.hourly_position_operations,
-                                    "closing_operations": self.hourly_closing_operations,
-                                    "successful_fills": self.hourly_successful_fills,
-                                    "canceled_orders": self.hourly_canceled_orders,
-                                    "estimated_fees": str(estimated_fees),
-                                    "current_position": str(position_amt),
-                                    "active_closing_amount": str(active_close_amount),
-                                    "hour_period": f"{datetime.fromtimestamp(self.last_hour_reset).strftime('%Y-%m-%d %H:%M')} - {datetime.fromtimestamp(current_time).strftime('%Y-%m-%d %H:%M')}"
-                                }
-                                
-                                await bot.send_notification(
-                                    notification_type="hourly_stats",
-                                    instance_id=self.config.instance_id,
-                                    exchange=self.config.exchange,
-                                    ticker=self.config.ticker,
-                                    message=f"Hourly trading statistics for instance {self.config.instance_id}",
-                                    data=stats_data
-                                )
+                            strategy_params = (
+                                f"Direction={self.config.direction} | "
+                                f"Qty={self.config.quantity} | "
+                                f"TP={self.config.take_profit}%"
+                            )
+                            
+                            metrics = {
+                                "仓位操作数": str(self.hourly_position_operations),
+                                "平仓操作数": str(self.hourly_closing_operations),
+                                "成功成交数": str(self.hourly_successful_fills),
+                                "取消订单数": str(self.hourly_canceled_orders),
+                                "预估手续费": f"{estimated_fees:.4f}",
+                                "当前仓位": str(position_amt),
+                                "活跃平仓": str(active_close_amount),
+                                "统计周期": f"{datetime.fromtimestamp(self.last_hour_reset).strftime('%H:%M')} - {datetime.fromtimestamp(current_time).strftime('%H:%M')}"
+                            }
+                            
+                            await bot.send_system_status(
+                                status_type='resource',
+                                message="每小时交易统计",
+                                metrics=metrics,
+                                instance_id=self.config.instance_id,
+                                exchange=self.config.exchange,
+                                ticker=self.config.ticker,
+                                strategy=strategy_params,
+                                color=CardColor.BLUE
+                            )
                         except Exception as e:
                             self.logger.log(f"Failed to send hourly stats notification: {e}", "ERROR")
 
@@ -606,10 +625,10 @@ class TradingBot:
         return stop_trading, pause_trading
 
     async def send_notification(self, message: str):
-        lark_token = os.getenv("LARK_TOKEN")
-        if lark_token:
-            async with LarkBot(lark_token) as lark_bot:
-                await lark_bot.send_text(message)
+        """Send notification to Lark or Telegram based on configuration."""
+        lark_bot = get_lark_webhook_bot()
+        if lark_bot:
+            await lark_bot.send_text(message)
 
         telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
         telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")

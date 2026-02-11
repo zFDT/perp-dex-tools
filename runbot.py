@@ -15,13 +15,14 @@ from exchanges import ExchangeFactory
 
 def parse_arguments():
     """Parse command line arguments."""
+    supported_exchanges = ExchangeFactory.get_supported_exchanges()
     parser = argparse.ArgumentParser(description='Modular Trading Bot - Supports multiple exchanges')
 
     # Exchange selection
     parser.add_argument('--exchange', type=str, default='edgex',
-                        choices=ExchangeFactory.get_supported_exchanges(),
+                        choices=supported_exchanges,
                         help='Exchange to use (default: edgex). '
-                             f'Available: {", ".join(ExchangeFactory.get_supported_exchanges())}')
+                             f'Available: {", ".join(supported_exchanges)}')
 
     # Trading parameters
     parser.add_argument('--ticker', type=str, default='ETH',
@@ -40,6 +41,8 @@ def parse_arguments():
                         help=".env file path (default: .env)")
     parser.add_argument('--grid-step', type=str, default='-100',
                         help="The minimum distance in percentage to the next close order price (default: -100)")
+    parser.add_argument('--instance-id', type=str, default='default',
+                        help="Instance identifier to distinguish between different script instances (default: default)")
 
     return parser.parse_args()
 
@@ -64,7 +67,8 @@ async def main():
         max_orders=args.max_orders,
         wait_time=args.wait_time,
         exchange=args.exchange,
-        grid_step=Decimal(args.grid_step)
+        grid_step=Decimal(args.grid_step),
+        instance_id=args.instance_id
     )
 
     # Create and run the bot
@@ -76,6 +80,14 @@ async def main():
         # The bot's run method already handles graceful shutdown
         return
 
-
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except RuntimeError as e:
+        if "asyncio.run() cannot be called from a running event loop" in str(e):
+            # If we're already in an event loop, just await the main function
+            import asyncio
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(main())
+        else:
+            raise

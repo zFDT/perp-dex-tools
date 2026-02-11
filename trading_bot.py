@@ -9,6 +9,7 @@ import traceback
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Optional
+from datetime import datetime
 
 from exchanges import ExchangeFactory
 from helpers import TradingLogger
@@ -28,6 +29,7 @@ class TradingConfig:
     wait_time: int
     exchange: str
     grid_step: Decimal
+    instance_id: str = "default"  # Unique identifier for the bot instance
 
     @property
     def close_order_side(self) -> str:
@@ -56,7 +58,7 @@ class TradingBot:
 
     def __init__(self, config: TradingConfig):
         self.config = config
-        self.logger = TradingLogger(config.exchange, config.ticker, log_to_console=True)
+        self.logger = TradingLogger(config.exchange, config.ticker, config.instance_id, log_to_console=True)
 
         # Create exchange client
         try:
@@ -78,8 +80,46 @@ class TradingBot:
         self.shutdown_requested = False
         self.loop = None
 
+        # Enhanced hourly statistics
+        self.hourly_operations = 0
+        self.hourly_fees = Decimal(0)
+        self.last_hour_reset = time.time()
+        
+        # Separate statistics for position operations and closing operations
+        self.hourly_position_operations = 0  # Current Position related operations
+        self.hourly_closing_operations = 0   # Active closing amount related operations
+        self.hourly_successful_fills = 0     # Successfully filled orders
+        self.hourly_canceled_orders = 0      # Canceled orders
+
         # Register order callback
         self._setup_websocket_handlers()
+
+    async def send_startup_notification(self):
+        """Send startup notification to Lark."""
+        lark_token = os.getenv("LARK_TOKEN")
+        if lark_token:
+            try:
+                async with LarkBot(lark_token) as bot:
+                    startup_data = {
+                        "quantity": str(self.config.quantity),
+                        "take_profit": str(self.config.take_profit),
+                        "direction": self.config.direction,
+                        "max_orders": self.config.max_orders,
+                        "wait_time": self.config.wait_time,
+                        "grid_step": str(self.config.grid_step)
+                    }
+                    
+                    await bot.send_notification(
+                        notification_type="startup",
+                        instance_id=self.config.instance_id,
+                        exchange=self.config.exchange,
+                        ticker=self.config.ticker,
+                        message=f"Trading bot started with instance ID: {self.config.instance_id}",
+                        data=startup_data
+                    )
+                    self.logger.log(f"Startup notification sent for instance: {self.config.instance_id}", "INFO")
+            except Exception as e:
+                self.logger.log(f"Failed to send startup notification: {e}", "ERROR")
 
     async def graceful_shutdown(self, reason: str = "Unknown"):
         """Perform graceful shutdown of the trading bot."""
@@ -119,6 +159,13 @@ class TradingBot:
                         else:
                             # Fallback (should not happen after run() starts)
                             self.order_filled_event.set()
+                        
+                        # Update position operation statistics
+                        self.hourly_position_operations += 1
+                        self.hourly_successful_fills += 1
+                    elif order_type == "CLOSE":
+                        # Update closing operation statistics
+                        self.hourly_closing_operations += 1
 
                     self.logger.log(f"[{order_type}] [{order_id}] {status} "
                                     f"{message.get('size')} @ {message.get('price')}", "INFO")
@@ -130,6 +177,13 @@ class TradingBot:
                             self.loop.call_soon_threadsafe(self.order_canceled_event.set)
                         else:
                             self.order_canceled_event.set()
+
+                        # Only count as canceled operation if there was no fill
+                        if filled_size == 0:
+                            self.hourly_canceled_orders += 1
+                        else:
+                            # Partial fill, count as position operation
+                            self.hourly_position_operations += 1
 
                         if self.order_filled_amount > 0:
                             self.logger.log_transaction(order_id, side, self.order_filled_amount, message.get('price'), status)
@@ -201,9 +255,11 @@ class TradingBot:
 
             # Wait for fill or timeout
             if not self.order_filled_event.is_set():
+                timeout_seconds = int(os.getenv('ORDER_TIMEOUT_SECONDS', 10))  # Default to 10 seconds
                 try:
-                    await asyncio.wait_for(self.order_filled_event.wait(), timeout=10)
+                    await asyncio.wait_for(self.order_filled_event.wait(), timeout=timeout_seconds)
                 except asyncio.TimeoutError:
+                    self.logger.log(f"[OPEN] Order {order_result.order_id} timed out after {timeout_seconds} seconds, trying to cancel order", "INFO")
                     pass
 
             # Handle order result
@@ -223,10 +279,7 @@ class TradingBot:
             self.last_open_order_time = time.time()
             # Place close order
             close_side = self.config.close_order_side
-            if close_side == 'sell':
-                close_price = filled_price * (1 + self.config.take_profit/100)
-            else:
-                close_price = filled_price * (1 - self.config.take_profit/100)
+            close_price = self._calculate_close_price(filled_price)
 
             close_order_result = await self.exchange_client.place_close_order(
                 self.config.contract_id,
@@ -252,7 +305,7 @@ class TradingBot:
                     self.current_order_status = "CANCELED"
 
             except Exception as e:
-                self.logger.log(f"[CLOSE] Error canceling order {order_id}: {e}", "ERROR")
+                self.logger.log(f"[CLOSE] Error canceling order {order_id}: {str(e)}", "ERROR")
 
             if self.config.exchange == "backpack":
                 self.order_filled_amount = cancel_result.filled_size
@@ -267,10 +320,7 @@ class TradingBot:
 
             if self.order_filled_amount > 0:
                 close_side = self.config.close_order_side
-                if close_side == 'sell':
-                    close_price = filled_price * (1 + self.config.take_profit/100)
-                else:
-                    close_price = filled_price * (1 - self.config.take_profit/100)
+                close_price = self._calculate_close_price(filled_price)
 
                 close_order_result = await self.exchange_client.place_close_order(
                     self.config.contract_id,
@@ -288,7 +338,7 @@ class TradingBot:
         return False
 
     async def _log_status_periodically(self):
-        """Log status information periodically, including positions."""
+        """Log status information periodically, including positions and hourly statistics."""
         if time.time() - self.last_log_time > 60 or self.last_log_time == 0:
             print("--------------------------------")
             try:
@@ -319,19 +369,35 @@ class TradingBot:
                 self.last_log_time = time.time()
                 # Check for position mismatch
                 if abs(position_amt - active_close_amount) > (2 * self.config.quantity):
-                    error_message = f"\n\nERROR: [{self.config.exchange.upper()}_{self.config.ticker.upper()}] "
-                    error_message += "Position mismatch detected\n"
-                    error_message += "###### ERROR ###### ERROR ###### ERROR ###### ERROR #####\n"
-                    error_message += "Please manually rebalance your position and take-profit orders\n"
-                    error_message += "请手动平衡当前仓位和正在关闭的仓位\n"
-                    error_message += f"current position: {position_amt} | active closing amount: {active_close_amount}\n"
-                    error_message += "###### ERROR ###### ERROR ###### ERROR ###### ERROR #####\n"
-                    self.logger.log(error_message, "ERROR")
+                    error_message = f"Position mismatch detected - Current position: {position_amt}, Active closing amount: {active_close_amount}"
+                    
+                    self.logger.log(f"\n\nERROR: [{self.config.exchange.upper()}_{self.config.ticker.upper()}] {error_message}", "ERROR")
+                    self.logger.log("###### ERROR ###### ERROR ###### ERROR ###### ERROR #####", "ERROR")
+                    self.logger.log("Please manually rebalance your position and take-profit orders", "ERROR")
+                    self.logger.log("请手动平衡当前仓位和正在关闭的仓位", "ERROR")
+                    self.logger.log("###### ERROR ###### ERROR ###### ERROR ###### ERROR #####", "ERROR")
 
                     lark_token = os.getenv("LARK_TOKEN")
                     if lark_token:
-                        async with LarkBot(lark_token) as bot:
-                            await bot.send_text(error_message.lstrip())
+                        try:
+                            async with LarkBot(lark_token) as bot:
+                                error_data = {
+                                    "current_position": str(position_amt),
+                                    "active_closing_amount": str(active_close_amount),
+                                    "position_difference": str(abs(position_amt - active_close_amount)),
+                                    "max_allowed_difference": str(2 * self.config.quantity)
+                                }
+                                
+                                await bot.send_notification(
+                                    notification_type="error",
+                                    instance_id=self.config.instance_id,
+                                    exchange=self.config.exchange,
+                                    ticker=self.config.ticker,
+                                    message="Position mismatch detected! Manual intervention required.",
+                                    data=error_data
+                                )
+                        except Exception as e:
+                            self.logger.log(f"Failed to send error notification: {e}", "ERROR")
 
                     if not self.shutdown_requested:
                         self.shutdown_requested = True
@@ -339,6 +405,53 @@ class TradingBot:
                     mismatch_detected = True
                 else:
                     mismatch_detected = False
+
+                # Send hourly statistics to Lark
+                current_time = time.time()
+                if current_time - self.last_hour_reset > 3600:  # 1 hour
+                    # Calculate estimated fees
+                    estimated_fees = self.hourly_position_operations * self.config.quantity * Decimal(0.001)  # Assuming 0.1% fee
+                    
+                    hourly_stats_message = (f"Hourly Statistics for instance {self.config.instance_id} - "
+                                          f"Position operations: {self.hourly_position_operations}, "
+                                          f"Closing operations: {self.hourly_closing_operations}, "
+                                          f"Successful fills: {self.hourly_successful_fills}, "
+                                          f"Canceled orders: {self.hourly_canceled_orders}")
+                    
+                    self.logger.log(hourly_stats_message, "INFO")
+                    
+                    lark_token = os.getenv("LARK_TOKEN")
+                    if lark_token:
+                        try:
+                            async with LarkBot(lark_token) as bot:
+                                stats_data = {
+                                    "position_operations": self.hourly_position_operations,
+                                    "closing_operations": self.hourly_closing_operations,
+                                    "successful_fills": self.hourly_successful_fills,
+                                    "canceled_orders": self.hourly_canceled_orders,
+                                    "estimated_fees": str(estimated_fees),
+                                    "current_position": str(position_amt),
+                                    "active_closing_amount": str(active_close_amount),
+                                    "hour_period": f"{datetime.fromtimestamp(self.last_hour_reset).strftime('%Y-%m-%d %H:%M')} - {datetime.fromtimestamp(current_time).strftime('%Y-%m-%d %H:%M')}"
+                                }
+                                
+                                await bot.send_notification(
+                                    notification_type="hourly_stats",
+                                    instance_id=self.config.instance_id,
+                                    exchange=self.config.exchange,
+                                    ticker=self.config.ticker,
+                                    message=f"Hourly trading statistics for instance {self.config.instance_id}",
+                                    data=stats_data
+                                )
+                        except Exception as e:
+                            self.logger.log(f"Failed to send hourly stats notification: {e}", "ERROR")
+
+                    # Reset statistics
+                    self.hourly_position_operations = 0
+                    self.hourly_closing_operations = 0
+                    self.hourly_successful_fills = 0
+                    self.hourly_canceled_orders = 0
+                    self.last_hour_reset = current_time
 
                 return mismatch_detected
 
@@ -375,6 +488,13 @@ class TradingBot:
         else:
             return True
 
+    def _calculate_close_price(self, filled_price: Decimal) -> Decimal:
+        """Calculate the close price based on the filled price and take profit."""
+        if self.config.close_order_side == 'sell':
+            return filled_price * (1 + self.config.take_profit / 100)
+        else:
+            return filled_price * (1 - self.config.take_profit / 100)
+
     async def run(self):
         """Main trading loop."""
         try:
@@ -384,6 +504,9 @@ class TradingBot:
             self.loop = asyncio.get_running_loop()
             # Connect to exchange
             await self.exchange_client.connect()
+
+            # Send startup notification
+            await self.send_startup_notification()
 
             # Main trading loop
             while not self.shutdown_requested:

@@ -24,9 +24,23 @@ class TradingLogger:
         logs_dir = os.path.join(project_root, 'logs')
         os.makedirs(logs_dir, exist_ok=True)
 
+        # Determine file naming based on instance_id and ACCOUNT_NAME
+        # Priority: instance_id (if not "default") > ACCOUNT_NAME > default naming
+        account_name = os.getenv('ACCOUNT_NAME')
+        if instance_id != "default":
+            # Use instance_id for naming if it's not the default value
+            order_file_name = f"{exchange}_{ticker}_{instance_id}_orders.csv"
+            debug_log_file_name = f"{exchange}_{ticker}_{instance_id}_activity.log"
+        elif account_name:
+            # Fall back to ACCOUNT_NAME if instance_id is default
+            order_file_name = f"{exchange}_{ticker}_{account_name}_orders.csv"
+            debug_log_file_name = f"{exchange}_{ticker}_{account_name}_activity.log"
+        else:
+            # Default naming
+            order_file_name = f"{exchange}_{ticker}_orders.csv"
+            debug_log_file_name = f"{exchange}_{ticker}_activity.log"
+
         # Log file paths inside logs directory
-        self.log_file = os.path.join(logs_dir, f"{exchange}_{ticker}_{instance_id}_orders.csv")
-        self.debug_log_file = os.path.join(logs_dir, f"{exchange}_{ticker}_{instance_id}_activity.log")
         self.timezone = pytz.timezone(os.getenv('TIMEZONE', 'Asia/Shanghai'))
         self.logger = self._setup_logger(log_to_console)
         self.last_lark_notification_time = 0
@@ -36,6 +50,9 @@ class TradingLogger:
         """Setup the logger with proper configuration."""
         logger = logging.getLogger(f"trading_bot_{self.exchange}_{self.ticker}")
         logger.setLevel(logging.INFO)
+
+        # Prevent propagation to root logger to avoid duplicate messages
+        logger.propagate = False
 
         # Prevent duplicate handlers
         if logger.handlers:

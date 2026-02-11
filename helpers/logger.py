@@ -41,6 +41,9 @@ class TradingLogger:
             debug_log_file_name = f"{exchange}_{ticker}_activity.log"
 
         # Log file paths inside logs directory
+        self.order_file = os.path.join(logs_dir, order_file_name)
+        self.debug_log_file = os.path.join(logs_dir, debug_log_file_name)
+        self.log_file = self.order_file  # Alias for backward compatibility
         self.timezone = pytz.timezone(os.getenv('TIMEZONE', 'Asia/Shanghai'))
         self.logger = self._setup_logger(log_to_console)
         self.last_lark_notification_time = 0

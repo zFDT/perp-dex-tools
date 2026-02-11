@@ -369,6 +369,13 @@ class BackpackClient(BaseExchangeClient):
 
                 if 'code' in order_result:
                     message = order_result.get('message', 'Unknown error')
+                    
+                    # Check for critical errors that should stop retrying
+                    if 'Insufficient margin' in message or 'insufficient' in message.lower():
+                        self.logger.log(f"[OPEN] Critical error - Insufficient margin to open order", "ERROR")
+                        return OrderResult(success=False, error_message=f'Insufficient margin: {message}')
+                    
+                    # For other errors (like post-only rejection), continue retrying
                     self.logger.log(f"[OPEN] Order rejected: {message}", "WARNING")
                     continue
 
@@ -473,6 +480,13 @@ class BackpackClient(BaseExchangeClient):
 
                 if 'code' in order_result:
                     message = order_result.get('message', 'Unknown error')
+                    
+                    # Check for critical errors that should stop retrying
+                    if 'Insufficient margin' in message or 'insufficient' in message.lower():
+                        self.logger.log(f"[CLOSE] Critical error - Insufficient margin to place close order", "ERROR")
+                        return OrderResult(success=False, error_message=f'Insufficient margin: {message}')
+                    
+                    # For other errors (like post-only rejection), continue retrying
                     self.logger.log(f"[CLOSE] Error placing order: {message}", "ERROR")
                     continue
 

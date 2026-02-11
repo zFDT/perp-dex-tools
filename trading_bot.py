@@ -136,6 +136,22 @@ class TradingBot:
             except Exception as e:
                 self.logger.log(f"Failed to send startup notification: {e}", "ERROR")
 
+    async def send_error_notification(self, error_type: str, details: str):
+        """Send error notification to Lark."""
+        bot = get_lark_webhook_bot()
+        if bot:
+            try:
+                await bot.send_error_card(
+                    error_type=error_type,
+                    error_details=details,
+                    instance_id=self.config.instance_id,
+                    exchange=self.config.exchange,
+                    ticker=self.config.ticker
+                )
+                self.logger.log(f"Error notification sent: {error_type}", "INFO")
+            except Exception as e:
+                self.logger.log(f"Failed to send error notification: {e}", "ERROR")
+
     async def graceful_shutdown(self, reason: str = "Unknown"):
         """Perform graceful shutdown of the trading bot."""
         self.logger.log(f"Starting graceful shutdown: {reason}", "INFO")
@@ -271,6 +287,14 @@ class TradingBot:
             )
 
             if not order_result.success:
+                # Check if it's an insufficient margin error
+                if order_result.error_message and 'Insufficient margin' in order_result.error_message:
+                    self.logger.log(f"⚠️ 资金不足，无法开仓，将休眠10分钟后重试", "WARNING")
+                    await self.send_error_notification("资金不足 - 暂停交易", 
+                        f"账户保证金不足，无法开仓\n交易对: {self.config.ticker}\n数量: {self.config.quantity}\n\n⏰ 将休眠10分钟后自动重试\n请及时充值或减少交易数量")
+                    # Sleep for 10 minutes before retrying
+                    await asyncio.sleep(600)  # 600 seconds = 10 minutes
+                    self.logger.log(f"💤 休眠结束，继续尝试交易", "INFO")
                 return False
 
             if order_result.status == 'FILLED':
@@ -728,3 +752,10 @@ class TradingBot:
                 await self.exchange_client.disconnect()
             except Exception as e:
                 self.logger.log(f"Error disconnecting from exchange: {e}", "ERROR")
+
+    def _calculate_close_price(self, filled_price: Decimal) -> Decimal:
+        """Calculate the close price based on the filled price and take profit."""
+        if self.config.close_order_side == 'sell':
+            return filled_price * (Decimal('1') + self.config.take_profit / Decimal('100'))
+        else:
+            return filled_price * (Decimal('1') - self.config.take_profit / Decimal('100'))
